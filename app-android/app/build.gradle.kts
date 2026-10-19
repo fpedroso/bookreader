@@ -16,8 +16,16 @@ android {
         applicationId = "com.fpedroso.bookreader"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // Version comes from git rather than being hand-bumped, so it cannot drift: the
+        // patch number IS the commit count, meaning every commit yields a distinct build
+        // and the number on the home page always identifies what is installed.
+        // 0.0.x until the first version is called done; then start the major.
+        // CI must check out full history (fetch-depth: 0) or the count would be 1.
+        val commits = providers.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+        }.standardOutput.asText.map { it.trim().toIntOrNull() ?: 0 }.getOrElse(0)
+        versionCode = commits.coerceAtLeast(1)
+        versionName = "0.0.$commits"
     }
 
     buildTypes {
@@ -34,6 +42,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // For BuildConfig.VERSION_NAME, so the home page can show which build is installed.
+        buildConfig = true
     }
     packaging {
         resources {

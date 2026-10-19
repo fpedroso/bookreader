@@ -18,6 +18,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history: the version name is the commit count, and a shallow clone would
+          # report 1 for every build.
+          fetch-depth: 0
 
       - uses: actions/setup-java@v6
         with:
