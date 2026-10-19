@@ -26,7 +26,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +49,11 @@ fun LibraryScreen(
     onOpen: (BookMeta) -> Unit,
     onDelete: (BookMeta) -> Unit,
 ) {
+    // The book whose ✕ was tapped, held until the confirmation is answered. Deleting is
+    // destructive and irreversible - the whole per-book directory goes, cached translations
+    // included - so the ✕ opens this first and nothing is removed until "Remove".
+    var pendingRemoval by remember { mutableStateOf<BookMeta?>(null) }
+
     Scaffold(
         // The version rides on the title. It only exists to identify the installed build, so it
         // needs no line of its own, and there is nothing to explain below the import button -
@@ -93,13 +101,45 @@ fun LibraryScreen(
                             flagFor(b.lang)?.let {
                                 Text(it, modifier = Modifier.padding(horizontal = 10.dp))
                             }
-                            TextButton(onClick = { onDelete(b) }) { Text("✕") }
+                            TextButton(onClick = { pendingRemoval = b }) { Text("✕") }
                         }
                         HorizontalDivider()
                     }
                 }
             }
         }
+    }
+
+    // Confirm before deleting. Store.remove drops the book's whole directory - the imported
+    // copy and its stored data, translations.json included - so what it costs the reader is
+    // the translations already looked up, which have to be produced again sentence by
+    // sentence. Cancel and an outside tap both dismiss; only "Remove" deletes anything.
+    pendingRemoval?.let { book ->
+        AlertDialog(
+            onDismissRequest = { pendingRemoval = null },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingRemoval = null
+                        onDelete(book)
+                    }
+                ) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRemoval = null }) { Text("Cancel") }
+            },
+            title = { Text("Remove ${book.title}?") },
+            text = {
+                Text(
+                    "The imported copy is deleted from app storage with this book's stored " +
+                        "data, including the translations you have already looked up. This " +
+                        "cannot be undone.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+        )
     }
 }
 
