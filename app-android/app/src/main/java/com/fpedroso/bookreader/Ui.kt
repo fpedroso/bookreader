@@ -179,11 +179,11 @@ private val SENTENCE_GAP = 12.dp
 // band's edges.
 private val SENTENCE_BAND_PAD = 6.dp
 
-// The same tiny inset horizontally inside each band - and applied to every OTHER block's text too,
-// so the page keeps ONE left edge. Without that, insetting only the sentences would indent the
-// body text away from the headings' left edge and leave a visibly ragged column. Very small on
-// purpose: just enough that glyphs do not touch the band edge.
-private val SENTENCE_BAND_INSET = 4.dp
+// The horizontal inset inside each band - and applied to every OTHER block's text too, so the page
+// keeps ONE left edge. Without that, insetting only the sentences would indent the body text away
+// from the headings' left edge and leave a visibly ragged column. Kept equal to the vertical pad
+// so the text sits in an even frame rather than being tighter left and right than top and bottom.
+private val SENTENCE_BAND_INSET = 6.dp
 
 // ------------------------------------------------------------------- reader
 
