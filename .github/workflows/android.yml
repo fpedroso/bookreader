@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -64,7 +64,7 @@ jobs:
           echo "--- installed ---"
           "$MGR" --list_installed 2>/dev/null | grep -E "android-35|35\.0\.1|build-tools" || true
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # Proves the Python annotator and the Kotlin parser still agree: this is the
       # load-bearing assumption of the whole design, so it must not silently skip.
@@ -81,7 +81,7 @@ jobs:
         working-directory: app-android
         run: ./gradlew assembleDebug --no-daemon
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: app-debug
           path: app-android/app/build/outputs/apk/debug/app-debug.apk
