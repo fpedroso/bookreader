@@ -13,9 +13,11 @@ only the sentences you can't.
 2. **Read** it as prose. Blocks come from `EpubParser` in `Epub.kt` — OPF spine order, and a
    stack of block collectors so a container's own text is a block in its own right. The
    reading view is continuous scrolling by design: there is no pagination.
-3. **Sentences.** For German, each paragraph is split into sentences (`Sentences.kt`). Every
-   sentence starts on its own line, so the unit of translation is visible with no border and
-   no colour, and a tap on a sentence translates exactly that sentence.
+3. **Sentences.** For German, each paragraph is split into sentences (`Sentences.kt`). Each
+   sentence starts on its own line, inside a subtle tinted band (`surfaceContainer`, 6dp of padding
+   inside it, 12dp between sentences), so the unit of translation is visible at a glance — and a tap
+   translates exactly that sentence. **Translate more** in the modal extends the unit by one sentence
+   at a time, which is the escape hatch when a split landed in the wrong place.
 4. **Per-block language.** A block's language comes from the document's own `lang`/`xml:lang`
    (the nearest ancestor first, then `<html lang>`), then the book's `dc:language`, then how
    the book was imported — and only if all of those are silent, ML Kit Language
@@ -70,13 +72,17 @@ may translate badly without its referent. A hardcoded list was rejected in excha
 that need no maintenance, and a "short capitalised word before the dot" rule was rejected too:
 it also suppresses the split in `Er traf Hans. Dann ging er.`
 
-**Each sentence gets its own line.** One composable per sentence, stacked, with no border and
-no tint: a tint cannot distinguish two sentences sharing a line and an inline background
-breaks into stripes at every wrap, so the line break is what marks the unit. The price is a
-ragged right edge and taller paragraphs, which reads as a block of units rather than a printed
-page — that is the point, for a reader comparing sentence structures. A tap target that *is*
-the sentence is also exact, where resolving a tap by nearest character offset was an
-approximation.
+**Each sentence gets its own line, in a subtle band.** One composable per sentence, stacked, each
+behind a `surfaceContainer` tint with 6dp of padding inside it and 12dp between sentences (still
+less than the 20dp between paragraphs, so a paragraph break reads as the bigger one). That is what
+marks the unit — the page had become a grid of frames when sentences were outlined instead.
+
+The tint is only viable because of this layout, which is worth knowing before "simplifying" it back
+into flowing prose: applied to a range of continuous text it merges two sentences sharing a line
+into one continuous band, and paints per line segment, so a sentence across four lines reads as four
+stripes. The price of the layout is a ragged right edge, which is the point for a reader comparing
+sentence structures, plus an exact tap target: a composable that *is* the sentence cannot be
+mis-hit, where resolving a tap by nearest character offset was an approximation.
 
 **Translation runs on device.** ML Kit's models (~30 MB per pair) download on first use and
 inference is offline and free, so translation can be lazy and automatic with no per-sentence

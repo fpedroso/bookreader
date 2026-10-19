@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The adaptive icon's background layer. A flat fill, deliberately: the launcher masks this layer
+     to whatever shape the device uses, so anything positioned in it gets cropped unpredictably. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#D0BCFF"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome layer for Android 13+ themed icons (the user's S25 on Android 16 supports them, and
+     applies them only if the launcher setting is on).
+
+     A silhouette, so it must read by shape alone: the page is drawn as an OUTLINE rather than a
+     fill, because a filled page would swallow the bars that sit on it and the icon would collapse
+     into a plain rounded rectangle at small sizes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:pathData="M38,26 H70 A8,8 0 0 1 78,34 V74 A8,8 0 0 1 70,82 H38 A8,8 0 0 1 30,74 V34 A8,8 0 0 1 38,26 Z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M40,42.5 L68,42.5" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M40,54.5 L64,54.5" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M40,66.5 L60,66.5" />
+</vector>

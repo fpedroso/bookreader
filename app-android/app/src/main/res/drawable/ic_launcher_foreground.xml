@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The foreground layer: a page in the reader's own colours, with three sentence bars and the
+     middle one highlighted - the tinted sentence band the reader taps, which is the one thing this
+     app does that a plain book icon would not say.
+
+     Everything sits inside the middle 66dp of the 108dp canvas (roughly 21..87), because an
+     adaptive icon's outer third belongs to the launcher's mask and may be cropped, or covered by a
+     badge. The colours are the app's Material 3 dark roles: #1C1B1F background, #D0BCFF primary and
+     #EFB8C8 tertiary, so the icon matches the app rather than being a separate palette. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#1C1B1F"
+        android:pathData="M38,26 H70 A8,8 0 0 1 78,34 V74 A8,8 0 0 1 70,82 H38 A8,8 0 0 1 30,74 V34 A8,8 0 0 1 38,26 Z" />
+    <path
+        android:strokeColor="#D0BCFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M40,42.5 L68,42.5" />
+    <path
+        android:strokeColor="#EFB8C8"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M40,54.5 L64,54.5" />
+    <path
+        android:strokeColor="#D0BCFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M40,66.5 L60,66.5" />
+</vector>
