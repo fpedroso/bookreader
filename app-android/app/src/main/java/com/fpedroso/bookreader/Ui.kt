@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -174,6 +175,16 @@ private val HEAD_GAP_BOTTOM = 10.dp
 // paragraph boundary stays visibly bigger than a sentence one. One constant, easy to tune.
 private val SENTENCE_GAP = 12.dp
 
+// Breathing room INSIDE each tinted sentence band, so the text does not sit flush against the
+// band's edges.
+private val SENTENCE_BAND_PAD = 6.dp
+
+// The same tiny inset horizontally inside each band - and applied to every OTHER block's text too,
+// so the page keeps ONE left edge. Without that, insetting only the sentences would indent the
+// body text away from the headings' left edge and leave a visibly ragged column. Very small on
+// purpose: just enough that glyphs do not touch the band edge.
+private val SENTENCE_BAND_INSET = 4.dp
+
 // ------------------------------------------------------------------- reader
 
 /**
@@ -257,11 +268,23 @@ fun ReaderScreen(
                 val shape = RoundedCornerShape(10.dp)
                 val sentences = row.sentences
                 if (sentences != null) {
-                    // One line per sentence, a small gap between them, and NO border and NO
-                    // tint: a tint cannot tell two sentences sharing a line apart, and an
-                    // inline background breaks into stripes at every line wrap. The line break
-                    // plus a little air is the marker. A sentence that wraps still flows
-                    // normally - only its START is forced onto a new line.
+                    // One line per sentence, a 12dp gap between them, NO border and NO tint on the
+                    // text itself - instead a subtle band BEHIND each sentence.
+                    //
+                    // That tint could not have worked before this layout: applied to a range of
+                    // flowing prose it merges two sentences sharing a line into one continuous
+                    // band, and paints per line segment so a wrapped sentence reads as stripes.
+                    // With one sentence per composable it is a real block behind one unit, which
+                    // is why the idea was worth revisiting once the layout changed.
+                    //
+                    // surfaceContainer rather than a hardcoded hex, so it stays part of the stock
+                    // Material palette. Deliberately the subtlest step that is still visible: it
+                    // should read as texture, not as cards - the page had already been a grid of
+                    // frames once, and a heavier tint or a border would take it back there.
+                    //
+                    // The gap sits OUTSIDE the tint (padding before background) so the bands are
+                    // visibly separate, and so the untinted space is not a tap target: the tint
+                    // marks exactly what is tappable.
                     //
                     // The cost is a ragged right edge and taller paragraphs, accepted
                     // deliberately: it reads as a block of units rather than a printed page,
@@ -269,6 +292,7 @@ fun ReaderScreen(
                     // makes the tap target exact - the composable IS the sentence, where
                     // resolving a tap by nearest character offset was an approximation.
                     Column(Modifier.fillMaxWidth()) {
+                        val bandShape = RoundedCornerShape(6.dp)
                         sentences.forEachIndexed { i, sentence ->
                             Text(
                                 sentence,
@@ -276,10 +300,17 @@ fun ReaderScreen(
                                 lineHeight = 30.sp,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(enabled = row.hash != null) { onSentenceTap(row, i) }
-                                    // Padding AFTER clickable, so the gap is part of the
-                                    // sentence above rather than dead space between two targets.
-                                    .padding(bottom = SENTENCE_GAP),
+                                    .padding(bottom = SENTENCE_GAP)
+                                    .clip(bandShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                                    // Padding AFTER background, so the tint covers the padding:
+                                    // that is what puts the text inside the band rather than
+                                    // flush against its edge.
+                                    .padding(
+                                        horizontal = SENTENCE_BAND_INSET,
+                                        vertical = SENTENCE_BAND_PAD,
+                                    )
+                                    .clickable(enabled = row.hash != null) { onSentenceTap(row, i) },
                             )
                         }
                     }
@@ -304,15 +335,25 @@ fun ReaderScreen(
                             // apart by size and weight only - larger and heavier than
                             // the 19sp body, plus space below so the first paragraph
                             // does not crowd it. Left-aligned, onBackground colour:
-                            // no tint, no border.
+                            // no tint, no border. The horizontal inset matches the one
+                            // inside the sentence bands so every block shares one left edge.
                             Text(
                                 row.text,
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(bottom = HEAD_GAP_BOTTOM),
+                                modifier = Modifier.padding(
+                                    start = SENTENCE_BAND_INSET,
+                                    end = SENTENCE_BAND_INSET,
+                                    bottom = HEAD_GAP_BOTTOM,
+                                ),
                             )
                         } else {
-                            Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
+                            Text(
+                                row.text,
+                                fontSize = 19.sp,
+                                lineHeight = 30.sp,
+                                modifier = Modifier.padding(horizontal = SENTENCE_BAND_INSET),
+                            )
                         }
                     }
                 }
