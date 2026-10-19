@@ -6,21 +6,28 @@ translated into English** — on device, offline.
 Built for reading German books at a level where you can mostly understand them, and checking
 only the sentences you can't.
 
-![Library screen](docs/library.png)
-
 ## What it does
 
 1. **Import** an EPUB (single-file picker). The file is copied into app storage and recorded
    in a small JSON manifest (`Store.kt`).
 2. **Read** it as prose. Blocks come from `EpubParser` in `Epub.kt` — OPF spine order, and a
-   stack of block collectors so a container's own text is a block in its own right.
-3. **Sentences.** For German, each paragraph is split into sentences (`Sentences.kt`, a
-   rule-based splitter that knows German abbreviations and ordinals). Each sentence renders
-   as its own softly bordered block, so the translation unit is visible before you tap.
-4. **Translate.** Tapping a sentence translates it German → English on device with ML Kit
-   (`Translate.kt`) and opens the result in a modal (`TranslationDialog`). No account, no
-   network call, no cost.
-5. **Cache.** Translations are stored per book, keyed `"<blockhash>#<index>"`, in
+   stack of block collectors so a container's own text is a block in its own right. The
+   reading view is continuous scrolling by design: there is no pagination.
+3. **Sentences.** For German, each paragraph is split into sentences (`Sentences.kt`). Every
+   sentence starts on its own line, so the unit of translation is visible with no border and
+   no colour, and a tap on a sentence translates exactly that sentence.
+4. **Per-block language.** A block's language comes from the document's own `lang`/`xml:lang`
+   (the nearest ancestor first, then `<html lang>`), then the book's `dc:language`, then how
+   the book was imported — and only if all of those are silent, ML Kit Language
+   Identification. The book-level `dc:language` is not trusted on its own: a German novel's
+   front matter is routinely English, and translating it as German returns the original words
+   with nothing to say why.
+5. **Translate.** Tapping a sentence translates it on device with ML Kit (`Translate.kt`) and
+   opens the result in a modal (`TranslationDialog`) that names the pair, e.g.
+   `German → English`. If the sentence is already English it says so and never calls the
+   model. No account, no cost, and the text never leaves the device — the ~30 MB model
+   downloads once per language pair, and the dialog says so while that happens.
+6. **Cache.** Translations are stored per book, keyed `"<blockhash>#<index>"`, in
    `translations.json` beside the book, so re-tapping and re-reading are free.
 
 **Opening a book never blocks on any per-language preparation.** Any EPUB in any language
@@ -52,12 +59,23 @@ adb install -r app-android/app/build/outputs/apk/debug/app-debug.apk
 
 Measured on real books, not assumed.
 
-**Sentence splitting is the hard part.** `Sentences.kt` is a rule-based splitter, not a
-naive punctuation scan: `.` is also the abbreviation and ordinal marker, so it has to keep
-`Dr. Heinrich Hoffmann` and `564. Auflage` together. The strongest signal is the case of the
-following token. Fragments shorter than `MIN_UNIT` are joined to the next sentence, because
-ML Kit translates a bare `Pfui!` badly without its referent — but the fragment is still
-*shown* on its own line.
+**The splitter relies on structure alone.** `Sentences.kt` has no abbreviation list and no
+fragment merging. What still keeps `564. Auflage` and `H. Hoffmann` together is structural:
+the digit before the dot, the single-capital initial, the initial chain `H.P.`, the case of
+the following token, and the comma/colon rule. The cost is real and accepted — `Dr. Heinrich
+Hoffmann` and `Mrs. Dursley` split, because "Capital. Capital" is lexically identical to a
+real boundary (`Er ging. Dursley kam.`), and a bare `Pfui!` is now its own unit that ML Kit
+may translate badly without its referent. A hardcoded list was rejected in exchange for rules
+that need no maintenance, and a "short capitalised word before the dot" rule was rejected too:
+it also suppresses the split in `Er traf Hans. Dann ging er.`
+
+**Each sentence gets its own line.** One composable per sentence, stacked, with no border and
+no tint: a tint cannot distinguish two sentences sharing a line and an inline background
+breaks into stripes at every wrap, so the line break is what marks the unit. The price is a
+ragged right edge and taller paragraphs, which reads as a block of units rather than a printed
+page — that is the point, for a reader comparing sentence structures. A tap target that *is*
+the sentence is also exact, where resolving a tap by nearest character offset was an
+approximation.
 
 **Translation runs on device.** ML Kit's models (~30 MB per pair) download on first use and
 inference is offline and free, so translation can be lazy and automatic with no per-sentence
@@ -73,8 +91,12 @@ often not installed, and without `cmdline-tools` AGP cannot fetch it.
 ## Known gaps
 
 - The sentence splitter is German-focused; other Latin-script languages fall back to a plain
-  punctuation split.
-- Hyphenated German compounds arrive as one token and translate as one word.
+  punctuation split. It is structure-only: no abbreviation list and no fragment merging, so
+  `Mrs. Dursley` splits and a bare `Pfui!` is its own unit.
+- Hyphenated German compounds (`Zappel-Philipp`, `Guck-in-die-Luft`) arrive as one token and
+  translate as one word.
+- Translation is fixed German → English: no target-language setting and no per-book override.
+- No bookmarks, no highlights, no Anki export.
 - Only EPUB3 XHTML text is parsed — no fixed-layout, no PDF, no cover thumbnails.
 - Library metadata is a JSON manifest; it will want a real database eventually.
 

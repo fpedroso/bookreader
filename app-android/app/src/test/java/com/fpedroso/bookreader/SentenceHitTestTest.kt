@@ -89,7 +89,9 @@ class SentenceHitTestTest {
         val ranges = sentenceUnits(prose.text, heading = false, lang = "de")
         assertNotNull(ranges)
         ranges!!
-        assertEquals(2, ranges.size)
+        // Three units: the paragraph holds two sentences, and with no abbreviation list the
+        // honourific at the front cuts off a third.
+        assertEquals(3, ranges.size)
 
         // The rendered paragraph and the ranges refer to the same string: that is exactly the
         // property the splitter's whitespace normalising would break if they diverged.
@@ -103,7 +105,7 @@ class SentenceHitTestTest {
             prose.text.substring(ranges[0].first, ranges[0].first + 20),
         )
         assertTrue(prose.text.substring(ranges[0].first, ranges[0].last + 1).startsWith("Mr. und Mrs."))
-        assertTrue(prose.text.substring(ranges[1].first, ranges[1].last + 1).endsWith("verwickelt würden."))
+        assertTrue(prose.text.substring(ranges[2].first, ranges[2].last + 1).endsWith("verwickelt würden."))
     }
 
     @Test
@@ -126,15 +128,16 @@ class SentenceHitTestTest {
 
     @Test
     fun aTapInsideASentenceResolvesToThatSentence() {
+        // Three units now, not two: with no abbreviation list, `Mrs. Dursley` splits.
         val text = "Mr. und Mrs. Dursley waren stolz darauf, normal zu sein. " +
             "Als sie an einem trüben Dienstagmorgen erwachten, war draußen kein Wölkchen am Himmel."
         val ranges = sentenceUnits(text, heading = false, lang = "de")!!
-        assertEquals(2, ranges.size)
+        assertEquals(3, ranges.size)
 
         val second = text.indexOf("trüben")
-        assertEquals(1, Sentences.indexAt(ranges, second))
-        val first = text.indexOf("Ligusterweg").let { if (it >= 0) it else text.indexOf("stolz") }
-        assertEquals(0, Sentences.indexAt(ranges, first))
+        assertEquals(2, Sentences.indexAt(ranges, second))
+        val first = text.indexOf("stolz")
+        assertEquals(1, Sentences.indexAt(ranges, first))
     }
 
     @Test

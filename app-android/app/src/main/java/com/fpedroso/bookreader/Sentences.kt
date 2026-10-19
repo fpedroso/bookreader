@@ -11,10 +11,16 @@ package com.fpedroso.bookreader
  *
  * German is the hard one. `.` is *also* the abbreviation and ordinal marker, so a naive
  * splitter breaks `Dr. Heinrich Hoffmann` and `564. Auflage` - both of which are in the
- * test book. The literature on German sentence boundary detection is consistent that a
- * rule-based approach with an abbreviation list is the right tool (Proisl & Uhrig;
- * Sugisaki et al.), and that the case of the following token is the strongest signal: an
- * uppercase next token suggests a sentence end, lowercase suggests an abbreviation.
+ * test book.
+ *
+ * There is deliberately NO abbreviation list and no fragment merging: this splitter relies on
+ * structure alone - the case of the following token, ordinals, initial chains, the
+ * comma/colon rule and closing punctuation. The cost is honest and accepted: `Mr. und Mrs.
+ * Dursley` and `Dr. Heinrich Hoffmann` split again, because "Capital. Capital" is lexically
+ * identical to a real boundary (`Er ging. Dursley kam.`) and only knowing which words are
+ * honourifics can separate them. A shape-based substitute ("a short capitalised word before
+ * the dot") was rejected too: it suppresses the boundary in `Er traf Hans. Dann ging er.`,
+ * which is worse than the false split it would fix. Do not reintroduce either.
  *
  * Everything here is pure and works on whitespace-collapsed text.
  */
@@ -22,34 +28,8 @@ object Sentences {
 
     data class Sentence(val text: String, val start: Int, val end: Int)
 
-    /**
-     * Fragments shorter than this are joined to the following sentence. ML Kit has no
-     * context and translates a bare `Pfui!` badly, because the referent lives in the next
-     * sentence - but the fragment still has to be *shown* on the right line, which is why
-     * this happens at the splitter level rather than at display time.
-     *
-     * Kept deliberately small: German is full of short *complete* sentences ("Er ging.",
-     * "Und dann?"), and merging those would change the unit a reader sees. This should
-     * only catch true interjections and fragments.
-     */
-    private const val MIN_UNIT = 8
-
     /** Trailing punctuation that belongs to the sentence it closes. */
     private val CLOSERS = setOf('»', '«', '“', '”', '\"', '\'', '’', '‘', ')', ']', '}')
-
-    /** Lowercased, dot-stripped forms. German prose leans on these heavily. */
-    private val ABBREV = setOf(
-        "dr", "prof", "hr", "fr", "nr", "bd", "bde", "s", "abb", "abs", "art", "aufl",
-        "bspw", "bzw", "ca", "d.h", "dh", "evtl", "ggf", "inkl", "insb", "jh", "kap",
-        "mio", "mrd", "o.ä", "s.o", "s.u", "sog", "u.a", "u.a.m", "usw", "vgl", "z.b",
-        "z.t", "zzgl", "etc", "jan", "feb", "mrz", "apr", "jun", "jul", "aug", "sept",
-        // Titles and English spawn, which a German novel still carries: without "mrs" the
-        // first paragraph of a real book opened "Mr. und Mrs." as a unit of its own and cut
-        // the sentence in half. Visible immediately once sentences got borders.
-        "mr", "mrs", "ms", "dr", "prof", "jr", "sr",
-        "okt", "nov", "dez", "hrs", "geb", "gest", "verh", "gesch", "max", "min",
-        "e.v", "z.h", "i.d.r", "m.e", "u.u", "o.g", "bspw", "resp", "v.a", "zzt",
-    )
 
     private val TERMINATORS = setOf('.', '!', '?', '…')
 
@@ -88,8 +68,16 @@ object Sentences {
 
     // ------------------------------------------------------------------ German
 
-    fun splitGerman(raw: String): List<Sentence> =
-        mergeShort(splitByAsciiPunctuation(normalise(raw)), MIN_UNIT)
+    /**
+     * German splitting, structure only.
+     *
+     * No fragment merging: a bare interjection like `Pfui!` is now its own translation unit,
+     * and ML Kit will translate it poorly in isolation because the referent lives in the next
+     * sentence. That is the accepted price of dropping the heuristic, and it cuts the other
+     * way as well: every unit is now exactly what the punctuation says, so a sentence the
+     * reader sees is a sentence the splitter meant.
+     */
+    fun splitGerman(raw: String): List<Sentence> = splitByAsciiPunctuation(normalise(raw))
 
     private fun splitByAsciiPunctuation(text: String): List<Sentence> {
         val out = ArrayList<Sentence>()
@@ -151,7 +139,8 @@ object Sentences {
             val word = wordBefore(text, termStart) ?: return true
             // A single capital letter is an initial: H. Hoffmann.
             if (word.length == 1 && word.first().isUpperCase()) return false
-            if (word.trimEnd('.').lowercase() in ABBREV) return false
+            // Nothing else: there is no abbreviation list, so `Dr.` / `Mrs.` end the sentence
+            // here when a capitalised word follows. See the note at the top of this file.
         }
         return true
     }
@@ -169,25 +158,5 @@ object Sentences {
         var j = i
         while (j < text.length && text[j].isLetter()) j++
         return text.substring(i, j)
-    }
-
-    /** Join context-free fragments onto the following sentence. */
-    private fun mergeShort(parts: List<Sentence>, min: Int): List<Sentence> {
-        if (parts.isEmpty()) return parts
-        val out = ArrayList<Sentence>(parts.size)
-        var pending: Sentence? = null
-        for (p in parts) {
-            pending = if (pending == null) p else Sentence(
-                text = pending.text + " " + p.text,
-                start = pending.start,
-                end = p.end,
-            )
-            if (pending.text.length >= min) {
-                out.add(pending)
-                pending = null
-            }
-        }
-        pending?.let { out.add(it) }
-        return out
     }
 }

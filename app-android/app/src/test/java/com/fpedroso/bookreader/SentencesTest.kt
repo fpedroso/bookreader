@@ -21,14 +21,12 @@ class SentencesTest {
     }
 
     @Test
-    fun abbreviationsDoNotEndSentences() {
-        // Both of these are in Der Struwwelpeter and both break a naive splitter.
+    fun noAbbreviationListSoALowercaseNodeIsTheOnlySignalThatADotIsNotAnEnd() {
+        // The list is gone, so the structural rules are all that is left. `usw. und` stays
+        // joined because the next word is lowercase; `ca. 8` splits because the next token is
+        // a digit and therefore not lowercase at all. Both are the honest new behaviour.
         assertEquals(
-            listOf("Dr. Heinrich Hoffmann schrieb das Buch."),
-            texts("Dr. Heinrich Hoffmann schrieb das Buch."),
-        )
-        assertEquals(
-            listOf("Er kam um ca. 8 Uhr an, usw. und so fort."),
+            listOf("Er kam um ca.", "8 Uhr an, usw. und so fort."),
             texts("Er kam um ca. 8 Uhr an, usw. und so fort."),
         )
     }
@@ -88,23 +86,29 @@ class SentencesTest {
     }
 
     @Test
-    fun shortFragmentsAreJoinedToTheNextSentence() {
-        // A bare interjection has no referent of its own; ML Kit translates it badly in
-        // isolation, so it rides along with the next sentence.
-        val out = texts("Pfui! Der Struwwelpeter war ein ungezogenes Kind.")
-        assertEquals(1, out.size)
-        assertTrue(out[0].startsWith("Pfui!"))
+    fun shortFragmentStandsAloneBecauseThereIsNoMerging() {
+        // ACCEPTED TRADE-OFF, not a bug to rediscover: `Pfui!` used to be joined to the next
+        // sentence because ML Kit translates a bare interjection badly without its referent.
+        // The merge rule is gone, so the fragment is now its own unit and its translation may
+        // well be poor. Each unit is exactly what the punctuation says instead.
+        assertEquals(
+            listOf("Pfui!", "Der Struwwelpeter war ein ungezogenes Kind."),
+            texts("Pfui! Der Struwwelpeter war ein ungezogenes Kind."),
+        )
     }
 
     @Test
-    fun titleAbbreviationsDoNotEndSentence() {
-        // "Mr. und Mrs. Dursley ... waren stolz darauf." is one sentence. Without "mrs" in the
-        // list it split after "Mrs.", which was invisible until sentences got borders.
+    fun honourificNowSplitsBecauseThereIsNoList() {
+        // ACCEPTED TRADE-OFF again. With "mrs" in the abbreviation list this was one sentence;
+        // without a list, "Capital. Capital" is indistinguishable from a real boundary, so
+        // "Dursley" starts a new unit. `Mr. und` stays joined on its own, because the next
+        // word is lowercase - only the capitalised continuation after `Mrs.`/`Dr.` splits.
         val s = Sentences.splitGerman(
             "Mr. und Mrs. Dursley im Ligusterweg Nummer 4 waren stolz darauf, ganz und gar normal zu sein."
         )
-        assertEquals(1, s.size)
-        assertTrue(s[0].text.startsWith("Mr. und Mrs."))
+        assertEquals(2, s.size)
+        assertEquals("Mr. und Mrs.", s[0].text)
+        assertTrue(s[1].text.startsWith("Dursley im Ligusterweg"))
     }
 
     @Test
