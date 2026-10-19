@@ -58,7 +58,8 @@ fun App() {
     var dict by remember { mutableStateOf<Dictionary?>(null) }
     // Paragraph translation. The word dialog is gone: tapping a paragraph opens a modal
     // with its English translation, produced on-device by ML Kit.
-    var tapPara by remember { mutableStateOf<RowItem.Para?>(null) }
+    var tapKey by remember { mutableStateOf<String?>(null) }
+    var tapSource by remember { mutableStateOf("") }
     var translation by remember { mutableStateOf<String?>(null) }
     var translating by remember { mutableStateOf(false) }
     var translateError by remember { mutableStateOf<String?>(null) }
@@ -86,7 +87,7 @@ fun App() {
         loading = true
         generated = emptyMap()
         translations = emptyMap()
-        tapPara = null
+        tapKey = null
         var loadedTranslations: Map<String, String> = emptyMap()
         val result = withContext(Dispatchers.IO) {
             val p = runCatching { EpubParser.parse(File(b.epubFile)) }.getOrNull()
@@ -149,8 +150,8 @@ fun App() {
 
     // The system back gesture must behave like the in-app "←" rather than finishing the
     // Activity. It also closes the translation modal first, since that sits on top.
-    BackHandler(enabled = openBook != null || tapPara != null) {
-        if (tapPara != null) tapPara = null else closeBook()
+    BackHandler(enabled = openBook != null || tapKey != null) {
+        if (tapKey != null) tapKey = null else closeBook()
     }
 
     val current = openBook
@@ -208,32 +209,35 @@ fun App() {
             }
         }
 
-        // Tap a paragraph -> its translation, cached by block hash so re-tapping is free.
-        // Off the main thread: the first call in a language also downloads its model.
-        val onParagraphTap: (RowItem.Para) -> Unit = { para ->
-            tapPara = para
-            val h = para.hash
-            val cached = h?.let { translations[it] }
+        // Tap a unit -> its translation, cached by key so re-tapping is free. For Chinese the
+        // unit is the paragraph (keyed by block hash); for prose languages it is one sentence
+        // (keyed "<hash>#<index>"). Off the main thread: the first call in a language also
+        // downloads its ~30 MB model.
+        fun openTranslation(key: String?, source: String) {
+            tapKey = key
+            tapSource = source
+            val cached = key?.let { translations[it] }
             translation = cached
             translateError = null
-            translating = cached == null && h != null
-            if (lang.isBlank()) {
+            translating = cached == null && key != null
+            when {
                 // No dc:language and no import hint: say so rather than guessing a source
                 // language for ML Kit, which would silently mistranslate.
-                translating = false
-                translateError = "the book's language could not be determined"
-            } else if (cached == null && h != null) {
-                scope.launch {
+                lang.isBlank() -> {
+                    translating = false
+                    translateError = "the book's language could not be determined"
+                }
+                cached == null && key != null -> scope.launch {
                     val res = runCatching {
                         withContext(Dispatchers.Default) {
-                            Translate.paragraph(ctx, lang, para.text)
+                            Translate.paragraph(ctx, lang, source)
                         }
                     }
                     translating = false
                     res.fold(
                         onSuccess = { text ->
                             translation = text
-                            translations = translations + (h to text)
+                            translations = translations + (key to text)
                             // Throttled: re-encoding a growing map on every tap costs more
                             // than the translation. closeBook always writes a final copy.
                             val now = System.currentTimeMillis()
@@ -253,6 +257,13 @@ fun App() {
             }
         }
 
+        val onSentenceTap: (RowItem.Para, Int) -> Unit = { para, i ->
+            openTranslation(
+                key = para.hash?.let { "$it#$i" },
+                source = para.sentences?.getOrNull(i) ?: para.text,
+            )
+        }
+
         ReaderScreen(
             title = current.title,
             rows = rows,
@@ -260,22 +271,35 @@ fun App() {
             pinyinToggleVisible = lang.startsWith("zh"),
             initialIndex = current.lastBlock,
             generated = generated,
-            selectedHash = tapPara?.hash,
+            selectedKey = tapKey,
             onTogglePinyin = { showPinyin = it },
-            onParagraphTap = onParagraphTap,
+            onParagraphTap = { para -> openTranslation(para.hash, para.text) },
+            onSentenceTap = onSentenceTap,
             onProgress = { lastIndex = it },
             onBack = closeBook,
         )
-        tapPara?.let { para ->
+        tapKey?.let {
             TranslationDialog(
-                source = para.text,
+                source = tapSource,
                 translation = translation,
                 busy = translating,
                 error = translateError,
-                onDismiss = { tapPara = null },
+                onDismiss = { tapKey = null },
             )
         }
     }
+}
+
+/**
+ * The sentence units of a prose block, or null when the block keeps the paragraph as its unit.
+ *
+ * Null for headings, where a border round "Kapitel 1" is noise, and for any block containing a
+ * newline - that is verse. `Sentences.split` normalises whitespace, so splitting a stanza would
+ * turn its `<br>` line breaks back into prose and undo the verse rendering.
+ */
+private fun sentenceUnits(text: String, heading: Boolean, lang: String): List<String>? {
+    if (heading || text.contains('\n')) return null
+    return Sentences.split(text, lang).map { it.text }.takeIf { it.isNotEmpty() }
 }
 
 private fun buildRows(book: EpubParser.Book, sidecar: Sidecar?, lang: String): List<RowItem> {
@@ -304,6 +328,7 @@ private fun buildRows(book: EpubParser.Book, sidecar: Sidecar?, lang: String): L
                             heading = bl.heading,
                             tokenRanges = spans.map { it.second }.ifEmpty { null },
                             hash = hash,
+                            sentences = sentenceUnits(bl.text, bl.heading, lang),
                         )
                     )
                 }

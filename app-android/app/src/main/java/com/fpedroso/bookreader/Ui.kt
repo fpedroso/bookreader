@@ -144,6 +144,13 @@ sealed interface RowItem {
          * rows are built once and re-render in place as annotation arrives.
          */
         val hash: String? = null,
+        /**
+         * Sentence units for prose languages, each rendered as its own softly bordered block
+         * and each the unit of translation - so the boundary is visible before the tap.
+         * Null for Chinese (the word-box flow keeps the paragraph as the unit) and for
+         * headings and verse.
+         */
+        val sentences: List<String>? = null,
     ) : RowItem
 }
 
@@ -162,10 +169,14 @@ fun ReaderScreen(
      * generation finishes, without rebuilding the row list.
      */
     generated: Map<String, List<Token>> = emptyMap(),
-    /** Block hash of the paragraph whose translation modal is open, outlined behind it. */
-    selectedHash: String? = null,
+    /**
+     * Cache key of the unit whose translation modal is open, outlined behind it. A paragraph
+     * key is its block hash; a sentence key is `"<hash>#<index>"`.
+     */
+    selectedKey: String? = null,
     onTogglePinyin: (Boolean) -> Unit,
     onParagraphTap: (RowItem.Para) -> Unit,
+    onSentenceTap: (RowItem.Para, Int) -> Unit,
     onProgress: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -215,31 +226,63 @@ fun ReaderScreen(
                         // A PC sidecar wins; otherwise in-app generation fills this in
                         // lazily, so the row re-renders with readings once they exist.
                         val tokens = row.tokens ?: row.hash?.let { generated[it] }
-                        // The whole paragraph is the tap target now: the word dialog is gone
-                        // and a paragraph is the unit we translate. Outlined while its
-                        // translation modal is open, so you can see which one it refers to.
-                        val selected = row.hash != null && row.hash == selectedHash
                         val shape = RoundedCornerShape(10.dp)
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(shape)
-                                .then(
-                                    if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, shape)
-                                    else Modifier
-                                )
-                                .clickable(enabled = row.hash != null) { onParagraphTap(row) }
-                                .padding(if (selected) 10.dp else 0.dp),
-                        ) {
-                            when {
-                                tokens == null ->
-                                    // Not annotated yet, or a language with no handler:
-                                    // readable straight away, becomes tappable when ready.
-                                    Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
-                                row.tokenRanges != null ->
-                                    ProseText(row.text, tokens, row.tokenRanges)
-                                else ->
-                                    WordFlow(tokens, showPinyin)
+                        val sents = row.sentences
+                        if (sents != null) {
+                            // One soft-bordered block per sentence. The border IS the unit:
+                            // what will be translated is visible before the tap, and each
+                            // sentence owns its line flow so a wrapped line stays inside its
+                            // own box. "Soft" = outlineVariant, so a page of these reads as
+                            // texture rather than as twenty nested frames.
+                            Column(Modifier.fillMaxWidth()) {
+                                sents.forEachIndexed { i, s ->
+                                    val key = row.hash?.let { "$it#$i" }
+                                    val sel = key != null && key == selectedKey
+                                    Column(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 3.dp)
+                                            .clip(shape)
+                                            .border(
+                                                width = if (sel) 1.5.dp else 1.dp,
+                                                color = if (sel) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.outlineVariant,
+                                                shape = shape,
+                                            )
+                                            .clickable(enabled = row.hash != null) {
+                                                onSentenceTap(row, i)
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    ) {
+                                        Text(s, fontSize = 19.sp, lineHeight = 28.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            // The whole paragraph is the tap target: outlined while its
+                            // translation modal is open, so you can see which one it is.
+                            val selected = row.hash != null && row.hash == selectedKey
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(shape)
+                                    .then(
+                                        if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, shape)
+                                        else Modifier
+                                    )
+                                    .clickable(enabled = row.hash != null) { onParagraphTap(row) }
+                                    .padding(if (selected) 10.dp else 0.dp),
+                            ) {
+                                when {
+                                    tokens == null ->
+                                        // Not annotated yet, or a language with no handler:
+                                        // readable straight away, becomes tappable when ready.
+                                        Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
+                                    row.tokenRanges != null ->
+                                        ProseText(row.text, tokens, row.tokenRanges)
+                                    else ->
+                                        WordFlow(tokens, showPinyin)
+                                }
                             }
                         }
                     }

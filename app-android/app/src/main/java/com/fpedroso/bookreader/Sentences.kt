@@ -55,6 +55,10 @@ object Sentences {
         "bspw", "bzw", "ca", "d.h", "dh", "evtl", "ggf", "inkl", "insb", "jh", "kap",
         "mio", "mrd", "o.ä", "s.o", "s.u", "sog", "u.a", "u.a.m", "usw", "vgl", "z.b",
         "z.t", "zzgl", "etc", "jan", "feb", "mrz", "apr", "jun", "jul", "aug", "sept",
+        // Titles and English spawn, which a German novel still carries: without "mrs" the
+        // first paragraph of a real book opened "Mr. und Mrs." as a unit of its own and cut
+        // the sentence in half. Visible immediately once sentences got borders.
+        "mr", "mrs", "ms", "dr", "prof", "jr", "sr",
         "okt", "nov", "dez", "hrs", "geb", "gest", "verh", "gesch", "max", "min",
         "e.v", "z.h", "i.d.r", "m.e", "u.u", "o.g", "bspw", "resp", "v.a", "zzt",
     )

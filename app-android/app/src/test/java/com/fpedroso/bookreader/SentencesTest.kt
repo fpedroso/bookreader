@@ -98,6 +98,17 @@ class SentencesTest {
     }
 
     @Test
+    fun titleAbbreviationsDoNotEndSentence() {
+        // "Mr. und Mrs. Dursley ... waren stolz darauf." is one sentence. Without "mrs" in the
+        // list it split after "Mrs.", which was invisible until sentences got borders.
+        val s = Sentences.splitGerman(
+            "Mr. und Mrs. Dursley im Ligusterweg Nummer 4 waren stolz darauf, ganz und gar normal zu sein."
+        )
+        assertEquals(1, s.size)
+        assertTrue(s[0].text.startsWith("Mr. und Mrs."))
+    }
+
+    @Test
     fun trailingFragmentIsKept() {
         // Text after the last terminator is still a unit a reader can ask about.
         assertEquals(listOf("Er ging.", "Und dann kam"), texts("Er ging. Und dann kam"))
