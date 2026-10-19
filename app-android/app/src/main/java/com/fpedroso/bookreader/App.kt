@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +25,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+// compose-ui's own LocalLifecycleOwner rather than androidx.lifecycle.compose's: the latter
+// lives in lifecycle-runtime-compose, which is not a declared dependency, and one deprecation
+// warning beats adding an artifact for a single import.
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -119,6 +126,29 @@ fun App() {
     // Activity. It also closes the translation modal first, since that sits on top.
     BackHandler(enabled = openBook != null || tapKey != null) {
         if (tapKey != null) tapKey = null else closeBook()
+    }
+
+    // Persist the reading position when the app goes to the background, not only when the book
+    // is closed. Reading is the one thing here where the phone gets put down mid-page, and
+    // closeBook only runs on "←" or back: swiping the app out of recents, an OS kill for memory
+    // or a crash skips it entirely, and the position then silently reverts to wherever it was
+    // last written. ON_STOP fires on the way out, so this covers all three.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, openBook) {
+        val b = openBook
+        if (b == null) return@DisposableEffect onDispose { }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                // Written synchronously: ON_STOP gives a short window, and a coroutine on
+                // another dispatcher is not guaranteed to finish before the process goes away.
+                // Both calls are plain blocking IO, which is what makes this possible.
+                Store.setProgress(ctx, b.id, lastIndex)
+                val tr = translations
+                if (tr.isNotEmpty()) persistTranslations(ctx, b.id, tr)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val current = openBook
