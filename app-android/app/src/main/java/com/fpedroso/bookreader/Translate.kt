@@ -11,9 +11,8 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Translations cached per book, keyed by block hash exactly like the pinyin sidecar - so a
- * paragraph that moves, or a book re-imported, still hits its translation. Persisted as
- * `translations.json` beside the book.
+ * Translations cached per book, keyed by block hash - so a sentence that moves, or a book
+ * re-imported, still hits its translation. Persisted as `translations.json` beside the book.
  */
 @Serializable
 data class Translations(
@@ -25,11 +24,9 @@ data class Translations(
 /**
  * On-device paragraph translation with ML Kit.
  *
- * Paragraph, not sentence: EPUB blocks already *are* paragraphs, so a translation maps 1:1
- * onto the hash-keyed block store the pinyin work established. One call per paragraph
- * instead of N, more context for the model, and for verse it matters a lot - a stanza is a
- * single block whose lines are mid-sentence breaks, so translating lines individually would
- * feed the model fragments.
+ * One call per unit, never per fragment: the unit is a sentence in prose, and a whole
+ * paragraph for headings and verse. A stanza is a single block whose lines are mid-sentence
+ * breaks, so translating verse line by line would feed the model fragments.
  *
  * Two things this buys that a network LLM would not: it is free and it runs offline, so
  * translation can be lazy and automatic without a cost decision per paragraph. The price is

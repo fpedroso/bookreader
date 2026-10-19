@@ -4,14 +4,15 @@ import android.content.Context
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.security.MessageDigest
 
 @Serializable
 data class BookMeta(
     val id: String,
     val title: String,
     val epubFile: String,
-    val sidecarFile: String? = null,
-    val lang: String = "zh",
+    /** dc:language as imported, e.g. "de", or "" when the EPUB carried none. */
+    val lang: String = "",
     val addedAt: Long = 0L,
     val lastBlock: Int = 0,
 )
@@ -63,4 +64,24 @@ object Store {
     /** Last 12 hex chars of the SHA-1 of the title - a stable-enough id. */
     fun idFor(title: String): String =
         Annotations.key(title).takeLast(12)
+}
+
+/**
+ * The block hash.
+ *
+ * SHA-1 of the text with all whitespace removed, first 16 hex chars. It is the translation
+ * cache key (`"<blockhash>#<index>"`), so it must be stable across imports, scrolls and
+ * re-reads. Whitespace is stripped so a block hashes the same however the extractor
+ * happened to normalise it.
+ */
+object Annotations {
+    fun key(text: String): String {
+        // NBSP counts as whitespace here even though Char.isWhitespace() says otherwise
+        // (Java excludes non-breaking spaces).
+        val stripped = text.filterNot { it.isWhitespace() || it == '\u00A0' }
+        val digest = MessageDigest.getInstance("SHA-1").digest(stripped.toByteArray(Charsets.UTF_8))
+        val hex = StringBuilder()
+        for (b in digest.take(8)) hex.append(String.format("%02x", b))
+        return hex.toString()
+    }
 }

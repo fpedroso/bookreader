@@ -1,7 +1,6 @@
 package com.fpedroso.bookreader
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -112,47 +111,5 @@ class SentencesTest {
     fun trailingFragmentIsKept() {
         // Text after the last terminator is still a unit a reader can ask about.
         assertEquals(listOf("Er ging.", "Und dann kam"), texts("Er ging. Und dann kam"))
-    }
-
-    @Test
-    fun chineseSplitsOnFullWidthTerminators() {
-        val out = Sentences.splitChinese("我叫小明。我是中国人！你呢？")
-        assertEquals(listOf("我叫小明。", "我是中国人！", "你呢？"), out.map { it.text })
-    }
-
-    @Test
-    fun chineseCommasAreNotSentenceEnds() {
-        assertEquals(1, Sentences.splitChinese("爸爸、妈妈、姐姐和我，都住在北京。").size)
-    }
-
-    @Test
-    fun chineseClosersAreAbsorbed() {
-        assertEquals(1, Sentences.splitChinese("他说：“我来了。”").size)
-    }
-
-    // ------------------------------------------------------- token -> sentence
-
-    @Test
-    fun mapsATappedTokenToItsSentence() {
-        val text = "Er ging nach Hause. Sie blieb hier."
-        val tokens = GermanTokenizer.tokenize(text)
-        val idx = tokens.indexOfFirst { it.word == "blieb" }
-        assertTrue(idx >= 0)
-        val s = Sentences.sentenceForToken(text, tokens, idx, "de")
-        assertNotNull(s)
-        assertEquals("Sie blieb hier.", s!!.text)
-    }
-
-    @Test
-    fun mappingSurvivesVerseLineBreaks() {
-        // Token offsets are computed on whitespace-collapsed text, so a newline inside the
-        // block cannot shift the mapping.
-        val text = "Sieh einmal, hier steht er,\npfui, der Struwwelpeter!"
-        val tokens = GermanTokenizer.tokenize(text)
-        val idx = tokens.indexOfFirst { it.word == "Struwwelpeter" }
-        assertTrue(idx >= 0)
-        val s = Sentences.sentenceForToken(text, tokens, idx, "de")
-        assertNotNull(s)
-        assertTrue(s!!.text.contains("Struwwelpeter"))
     }
 }

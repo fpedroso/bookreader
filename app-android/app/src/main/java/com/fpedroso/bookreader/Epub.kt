@@ -14,8 +14,9 @@ import java.util.zip.ZipFile
  * desugaring. Our fixtures are plain EPUB3, so spec coverage was not worth the
  * toolchain risk.
  *
- * The extraction rule here MUST match tools/annotate.py, because the pinyin
- * sidecar is keyed by a hash of each block's non-whitespace characters.
+ * Each block's text is hashed by Annotations.key (whitespace stripped) to key the
+ * translation cache, so what counts as one block matters - changing this rule would
+ * orphan cached translations.
  * Rule: innermost block element wins (a block that contains another block
  * does not itself emit text).
  */
@@ -35,7 +36,7 @@ object EpubParser {
     data class Book(
         val title: String?,
         val chapters: List<Chapter>,
-        /** Normalised 2-letter code from dc:language, e.g. "de". Drives dictionary choice. */
+        /** Normalised 2-letter code from dc:language, e.g. "de". Drives sentence splitting. */
         val language: String?,
     ) {
         val blockCount: Int get() = chapters.sumOf { it.blocks.size }
@@ -88,8 +89,7 @@ object EpubParser {
 
     /**
      * Uses XmlPullParserFactory rather than android.util.Xml so the exact same
-     * parser runs under JVM unit tests (with kxml2 on the test classpath), which
-     * is how BlockHashAgreementTest proves this and annotate.py agree.
+     * parser runs under JVM unit tests (with kxml2 on the test classpath).
      */
     private fun newParser(): XmlPullParser {
         val factory = XmlPullParserFactory.newInstance()
@@ -224,9 +224,9 @@ object EpubParser {
      * Sentinel for a real line break, swapped for "\n" only after whitespace is collapsed.
      *
      * It has to be non-whitespace so the collapsing pass cannot eat it, and it has to be
-     * *gone* from the final text, because the block hash strips whitespace - a surviving
-     * newline is invisible to the hash, which is exactly what keeps these line breaks
-     * compatible with sidecars built on the PC, where no <br> handling exists.
+     * *gone* from the final text, because the block hash strips whitespace anyway - a
+     * surviving newline would be invisible to the hash, so <br> line breaks cannot
+     * perturb a block's cache key.
      */
     private const val BR = "\u241E"
     private val BREAK_PAD = Regex(" *\\n *")

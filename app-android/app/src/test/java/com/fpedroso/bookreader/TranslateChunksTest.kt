@@ -47,17 +47,4 @@ class TranslateChunksTest {
         val joined = Translate.chunks(text, "de").joinToString(" ")
         assertEquals(text.trim(), joined)
     }
-
-    @Test
-    fun chineseUsesChineseBoundaries() {
-        // 11 chars repeated 60 times = 660, comfortably over the 400 budget. (Repeating it
-        // 30 times gives 330, which is a single chunk - my first version of this test got
-        // that wrong and failed for the wrong reason.)
-        val text = "我叫小明。我是中国人！".repeat(60)
-        val chunks = Translate.chunks(text, "zh")
-        assertTrue("expected more than one chunk, got ${chunks.size}", chunks.size > 1)
-        for (c in chunks.dropLast(1)) {
-            assertTrue("chunk must end on a full-width terminator: ...${c.takeLast(12)}", c.last() in "。！？…")
-        }
-    }
 }

@@ -32,38 +32,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      # The dictionary is not committed (CC-CEDICT is CC BY-SA and 16 MB), so the
-      # build has to reproduce it from upstream. This also exercises build_cedict.py.
-      - name: Build CC-CEDICT asset
-        run: |
-          set -euo pipefail
-          pip install --quiet pypinyin jieba
-          curl -sSL -o tools/cedict.gz \
-            "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
-          gzip -dc tools/cedict.gz > tools/cedict.txt
-          python tools/build_cedict.py
-          test -f app-android/app/src/main/assets/cedict.db
-
-      # Same rationale as CC-CEDICT: a generated CC BY-SA asset that is not vendored.
-      # Without this step the artifact would build fine but ship with no German
-      # dictionary at all - a silent gap, since the build does not require the file.
-      - name: Build German dictionary asset
-        run: |
-          set -euo pipefail
-          curl -sSL -o tools/kaikki-de.jsonl.gz \
-            "https://kaikki.org/dictionary/German/kaikki.org-dictionary-German.jsonl.gz"
-          python tools/build_german.py tools/kaikki-de.jsonl.gz \
-            app-android/app/src/main/assets/de.db
-          test -f app-android/app/src/main/assets/de.db
-
-      # Generate the fixtures the extractor-agreement test needs. They are not
-      # committed either, so without this the test would silently skip.
-      - name: Generate test fixtures
-        run: |
-          set -euo pipefail
-          python tools/gen_hsk1.py content/hsk1.epub
-          python tools/annotate.py content/hsk1.epub tools/cedict.txt content/hsk1.pinyin.json
-
       # Do NOT use android-actions/setup-android@v3: it runs `sdkmanager tools`, and
       # the legacy 'tools' package was removed from the SDK repository, so the action
       # fails with "Failed to find package 'tools'" before doing anything useful.
@@ -89,15 +57,12 @@ jobs:
       # a "you could be newer" nudge, not a defect. See the SDK pin note above.
       - uses: gradle/actions/setup-gradle@v6
 
-      # Proves the Python annotator and the Kotlin parser still agree: this is the
-      # load-bearing assumption of the whole design, so it must not silently skip.
-      - name: Unit tests (extractor agreement)
+      - name: Unit tests
         working-directory: app-android
         run: |
           set -euo pipefail
           ./gradlew testDebugUnitTest --no-daemon
-          # Fails on a SKIPPED test too: the test skips when fixtures are missing,
-          # which would otherwise look like a pass.
+          # Fails on a SKIPPED test too, which would otherwise look like a pass.
           python ../tools/check_test_results.py
 
       - name: Build debug APK

@@ -16,8 +16,7 @@ package com.fpedroso.bookreader
  * Sugisaki et al.), and that the case of the following token is the strongest signal: an
  * uppercase next token suggests a sentence end, lowercase suggests an abbreviation.
  *
- * Everything here is pure and works on whitespace-collapsed text, so offsets from token
- * positions and from this splitter live in the same coordinate space.
+ * Everything here is pure and works on whitespace-collapsed text.
  */
 object Sentences {
 
@@ -35,19 +34,8 @@ object Sentences {
      */
     private const val MIN_UNIT = 8
 
-    /**
-     * The same idea for Chinese, but far lower, because character count is not comparable
-     * across scripts: 我叫小明。 is five characters and a complete sentence, with more
-     * content than a fifteen-character German one. A shared threshold silently merged
-     * whole Chinese sentences together - caught by the unit tests, not by reading.
-     */
-    private const val MIN_UNIT_CN = 3
-
     /** Trailing punctuation that belongs to the sentence it closes. */
-    private val CLOSERS = setOf(
-        '»', '«', '“', '”', '"', '\'', '’', '‘', ')', ']', '}',
-        '）', '】', '》', '」', '』', '〉', '］',
-    )
+    private val CLOSERS = setOf('»', '«', '“', '”', '\"', '\'', '’', '‘', ')', ']', '}')
 
     /** Lowercased, dot-stripped forms. German prose leans on these heavily. */
     private val ABBREV = setOf(
@@ -69,7 +57,6 @@ object Sentences {
     private fun normalise(raw: String): String = raw.replace(Regex("\\s+"), " ").trim()
 
     fun split(text: String, lang: String): List<Sentence> = when {
-        lang.startsWith("zh") -> splitChinese(text)
         lang.startsWith("de") -> splitGerman(text)
         // Latin-script default; good enough for the other European languages.
         else -> splitByAsciiPunctuation(normalise(text))
@@ -178,66 +165,5 @@ object Sentences {
         }
         pending?.let { out.add(it) }
         return out
-    }
-
-    // ------------------------------------------------------------------ Chinese
-
-    /**
-     * Chinese needs no whitespace heuristics: sentences end on full-width terminators and
-     * that is the whole rule. `，` and `、` are commas and must not split.
-     */
-    fun splitChinese(raw: String): List<Sentence> {
-        val text = normalise(raw)
-        val out = ArrayList<Sentence>()
-        var start = 0
-        for (i in text.indices) {
-            if (text[i] !in CN_TERMINATORS) continue
-            var j = i
-            while (j + 1 < text.length && text[j + 1] in CN_TERMINATORS) j++
-            var k = j
-            while (k + 1 < text.length && text[k + 1] in CLOSERS) k++
-            out.add(Sentence(text.substring(start, k + 1).trim(), start, k + 1))
-            start = k + 1
-        }
-        if (start < text.length) {
-            val tail = text.substring(start).trim()
-            if (tail.isNotEmpty()) out.add(Sentence(tail, start, text.length))
-        }
-        return mergeShort(out, MIN_UNIT_CN)
-    }
-
-    private val CN_TERMINATORS = setOf('。', '！', '？', '…', '；')
-
-    // ------------------------------------------------- token -> sentence mapping
-
-    /**
-     * Offset of the token at [index] within the whitespace-collapsed text.
-     *
-     * The tokeniser only ever drops whitespace, so walking forward from the last match is
-     * reliable even when the same word repeats - searching from the previous token's end
-     * prevents re-anchoring on an earlier occurrence.
-     */
-    fun tokenOffset(text: String, tokens: List<Token>, index: Int): Int? {
-        var pos = 0
-        for (i in 0..index) {
-            val w = tokens.getOrNull(i)?.word ?: return null
-            val at = text.indexOf(w, pos)
-            if (at < 0) return null
-            if (i == index) return at
-            pos = at + w.length
-        }
-        return null
-    }
-
-    /** The sentence containing the tapped token, for on-demand translation. */
-    fun sentenceForToken(
-        raw: String,
-        tokens: List<Token>,
-        index: Int,
-        lang: String,
-    ): Sentence? {
-        val text = normalise(raw)
-        val off = tokenOffset(text, tokens, index) ?: return null
-        return split(text, lang).firstOrNull { off >= it.start && off < it.end }
     }
 }

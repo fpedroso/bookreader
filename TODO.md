@@ -4,92 +4,44 @@ Ideas and known gaps, roughly in the order they'd be worth doing. Nothing here i
 committed to; it's a parking lot. See the *Design notes* and *Known gaps* sections of
 [README.md](README.md) for the reasoning behind the constraints mentioned below.
 
-## Content: a store of properly-licensed ebooks
-
-A browseable list of free, correctly-licensed sources per language. **Licensing is the
-whole point of this item**: "free to download" and "legal to redistribute" are not the
-same thing.
-
-Chinese:
-- [StoryWeaver](https://storyweaver.org.in/) (Pratham Books) — **CC BY 4.0**, >100 titles
-  in Chinese, EPUB downloads, safe to link *and* bundle if we ever want to.
-- [Project Gutenberg](https://www.gutenberg.org/) Chinese shelf — public domain, but
-  mostly Ming-dynasty vernacular (水浒传, 西遊記) and 1920s literary Chinese. Hard for a
-  beginner.
-- Graded readers are the right content but commercial: **Mandarin Companion** (~$8/ebook,
-  DRM-free, 150/300/450 unique characters) and **Imagin8 Press** (~$10-15, 31-book
-  *Journey to the West*, free companion audio on YouTube). Link them as "buy", not "free".
-- ⚠️ **Do not link Chinese web-novel aggregator sites.** They are overwhelmingly pirated,
-  whatever the disclaimer says.
-
-German:
-- [Project Gutenberg](https://www.gutenberg.org/) German shelf — public domain. The
-  easiest titles (Der Struwwelpeter, Max und Moritz) are already the test fixtures.
-- **Dino lernt Deutsch** (André Klein) — A1/A2, 12 volumes, **100% DRM-free EPUB**, paid.
-  The honest answer for a beginner; there is no free A1 German EPUB.
-- Free A1 German essentially does not exist in EPUB form.
-
-**Library model: import-only.** Decided — there is no folder to watch. Every book enters
-the library through an explicit import (the EPUB, plus its `.pinyin.json` sidecar when one
-exists), and Chinese readings are generated in-app rather than prepared on the desktop. So
-this store is a *discovery* surface: it points at properly-licensed books and the user
-imports the file they want. A watched-folder design was considered and dropped — it needed
-a "sources" abstraction over the library, `takePersistableUriPermission`, and a rescan on
-resume, to save taps that import already covers.
-
-Design question to settle: a hardcoded curated list, or a remote JSON we can update
-without an app release? **Prefer a remote list** — the licensing situation per source will
-change and a shipped list would go stale.
-
 ## Pagination
 
 Currently the reader is a continuous `LazyColumn` scroll. Page-turn pagination is what a
-book is supposed to feel like, and was in the original brief.
+book is supposed to feel like.
 
-- The current layout is a `FlowRow` of per-word boxes, so pagination means measuring
-  how many *rows* fit the viewport and splitting paragraph token-lists at that boundary.
-- Deliberately **not** the same problem as the ruby-text road not taken: the earlier
-  design worried about canonical, device-independent pages. That is not needed here —
-  font size changing the page count is normal and fine. This is just viewport fitting.
+- Measure how many sentences fit the viewport and break at that boundary.
+- Deliberately **not** about canonical, device-independent pages — font size changing the
+  page count is normal and fine. This is just viewport fitting.
 - Keep it behind an interface so scroll mode stays available; dyslexic/accessibility
   readers often prefer scroll.
 
-## Configurable pinyin and translation
+## Translation settings
 
-Right now these are effectively fixed: pinyin is on/off with one switch, and the
-dictionary is chosen by `dc:language`. Worth making explicit settings:
+Right now translation is effectively fixed: German → English, one model, no configuration.
 
-- pinyin: on/off, and possibly *thresholded* — only show readings for characters above a
-  given frequency, which is how learners graduate off pinyin without turning it off
-  wholesale. Requires a per-character frequency table.
-- display: font size, line spacing, dark mode, traditional vs simplified preference.
-- dictionary: which target language to gloss into, and per-book override.
-- the LLM gloss (below) needs its own config: model, whether it's enabled at all, and
-  where the key lives.
+- target language, and a per-book override.
+- whether to show the source sentence alongside the translation.
+- an opt-in "explain this sentence" mode (see below) with its own model/key settings.
 
 ## LLM gloss for sentences you're stuck on
 
-Not in the original list but the natural companion to tap-a-word, and it was in the
-original brief. Per-word lookup answers "what does this word mean"; it does not answer
-"what is this sentence doing" — word order, separable verbs, particle usage.
+On-device translation answers "what does this say"; it does not answer "what is this
+sentence doing" — word order, separable verbs, particle usage.
 
 - On demand per sentence, prompted as a **tutor** (literal gloss + structure) rather than
   as a translation engine. Fluent output is the enemy here: it hides the structure the
   learner is trying to see.
-- Cache by block hash, same as the pinyin sidecar, so re-reading costs nothing.
+- Cache by block hash, same as the translation cache, so re-reading costs nothing.
 - Needs an API key, so it must be strictly opt-in and off by default.
 
 ## Smaller known gaps
 
 Carried from README so they aren't lost:
 
-- Hyphenated German compounds (`Guck-in-die-Luft`, `Zappel-Philipp`) arrive as one token
-  and do not resolve. German is head-final, so retrying the last segment would fix most.
-- German asset is 113 MB on disk (~40 MB in the APK). The inflection table is the lever.
-- In-app pinyin: a bare, context-dependent character still takes CC-CEDICT's first row
-  (`得` → "dé" rather than the particle "de"). Words are fine — 觉得 matches as a unit — so
-  only standalone characters are ambiguous, and there is no POS tag to disambiguate from.
-  Proper-noun readings are already avoided by row ordering.
+- The sentence splitter is German-focused; other Latin-script languages fall back to a plain
+  punctuation split.
+- Hyphenated German compounds (`Guck-in-die-Luft`, `Zappel-Philipp`) arrive as one token and
+  translate as a single word.
 - No bookmarks, no highlights, no Anki export.
 - Only EPUB3 XHTML text: no fixed-layout, no PDF, no cover thumbnails.
 - Library metadata is a JSON manifest; it'll want a real database eventually.
