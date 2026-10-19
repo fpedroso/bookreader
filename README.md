@@ -140,6 +140,24 @@ publisher names. `tools/probe_german_lookup.py` reproduces that measurement usin
 app's exact SQL, so the number is about the shipped lookup path rather than a
 convenient reimplementation.
 
+**Results are ranked by usefulness, not by lookup step.** The form-table hit used to come
+first always, which reads wrong for a function word: tapping `mein` led with `→ ich` (its
+`form_of` pointer) when the primary sense is the determiner "my". There are three buckets
+now:
+
+1. the token's own entry, with real meaning — `mein` → det "my"
+2. the lemma a form resolves to — `Häuser` → `Haus` → "house"
+3. the token's own entry, but pointer-only — `Häuser` → "plural of Haus"
+
+"Own entry first" is *not* the rule either: `Häuser` and `ging` have their own entries too,
+and theirs are bare pointers, so bucket 2 has to win for them. `isPointerGloss` draws that
+line, and the source mixes both cases inside one gloss — `nominative/accusative neuter
+singular of der: the` carries its meaning *after* the colon so it counts as real (otherwise
+tapping `das` regresses to leading with `der`), while a trailing colon
+(`inflection of lustig:`) does not. `GermanGlossTest` covers both. Duplicate glosses are
+collapsed at build time as well: the source repeats the same sense across senses, so
+`lustige` used to list "inflection of lustig:" three times.
+
 **Each word is its own box; no ruby-text library.** The rendering is one small `Column`
 per word — pinyin above, the word tappable below. Word-level tap targets come out exact
 with no coordinate arithmetic, and pinyin alignment is correct by construction.
