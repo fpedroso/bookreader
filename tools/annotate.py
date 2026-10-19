@@ -98,18 +98,41 @@ def numbered_to_toned(py: str) -> str:
 BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div", "td"}
 SKIP_TAGS = {"script", "style", "head", "title", "rt", "rp"}
 
+# Containers whose *own* text is a block. `body` matters because converter and
+# ebook-splitter output frequently dumps prose as bare text nodes inside body with empty
+# <p> tags as spacers - a real Harry Potter EPUB is exactly that shape, and without this
+# every heading was extracted and all 530 KB of prose was silently dropped.
+CONTAINERS = BLOCK_TAGS | {"body"}
+
 # Sentinel for a real line break, swapped for "\n" only after whitespace is collapsed.
 # It must be non-whitespace so the collapsing pass cannot eat it, and it must be gone from
 # the final text because the block hash strips whitespace - which is exactly what keeps
 # these breaks invisible to the hash and the sidecars compatible with the Kotlin extractor.
 BR = "\u241e"
 
+# NBSP is whitespace for our purposes but not for Kotlin's Char.isWhitespace.
+WS_RE = re.compile(r"[\s\u00a0]+")
+BREAK_PAD = re.compile(r" *\n *")
+BREAK_RUN = re.compile(r"\n{2,}")
+
+
+def local_name(tag) -> str:
+    """ElementTree gives '{ns}name' or 'prefix:name'; take the local part.
+
+    Kotlin's XmlPullParser reports the qualified name, so BOTH sides must normalise or
+    `dc:language` never matches 'language' - which is why language detection silently
+    failed for every real EPUB.
+    """
+    if not isinstance(tag, str):
+        return ""
+    return tag.split("}")[-1].split(":")[-1].lower()
+
 
 def strip_tags(el) -> str:
-    """Concatenate text, skipping script/style/ruby-annotation subtrees."""
+    """Full text of a subtree, skipping script/style/ruby-annotation subtrees."""
 
     def walk(node):
-        tag = node.tag.split("}")[-1].lower() if isinstance(node.tag, str) else ""
+        tag = local_name(node.tag)
         if tag in SKIP_TAGS:
             return
         # A <br> is a real line break *inside* one block: verse keeps a whole stanza in a
@@ -128,26 +151,52 @@ def strip_tags(el) -> str:
     return html.unescape("".join(parts))
 
 
+def clean(raw: str) -> str:
+    """Collapse whitespace, keep only genuine <br> breaks, as "\\n"."""
+    t = WS_RE.sub(" ", raw).strip()
+    t = BREAK_PAD.sub("\n", t.replace(BR, "\n"))
+    return BREAK_RUN.sub("\n", t).strip()
+
+
 def blocks_from_xhtml(data: bytes) -> list[str]:
+    """Blocks in document order, mirroring EpubParser.parseChapter.
+
+    A container emits its OWN text as a block, and that text is flushed when a nested
+    container begins - so `<body> A <p></p> B </body>` yields "A" then "B", matching the
+    Kotlin parser block for block. The block hash is shared between the two extractors, so
+    any divergence here degrades sidecar lookups.
+    """
     root = ET.fromstring(data)
-    out = []
-    for el in root.iter():
-        tag = el.tag.split("}")[-1].lower() if isinstance(el.tag, str) else ""
-        if tag in BLOCK_TAGS:
-            # Skip containers that hold other block elements - the leaf wins.
-            if any(
-                isinstance(c.tag, str) and c.tag.split("}")[-1].lower() in BLOCK_TAGS
-                for c in el
-            ):
-                continue
-            # \s covers newlines, tabs and NBSP, so indentation inside a paragraph and the
-            # non-breaking spaces Gutenberg sprinkles in both collapse to a plain space -
-            # matching EpubParser.WS. Only genuine <br> breaks survive, as "\n".
-            t = re.sub(r"\s+", " ", strip_tags(el)).strip()
-            t = re.sub(r" *\n *", "\n", t.replace(BR, "\n"))
-            t = re.sub(r"\n{2,}", "\n", t).strip()
-            if t:
-                out.append(t)
+    out: list[str] = []
+
+    def flush(buf) -> None:
+        t = clean("".join(buf))
+        if t:
+            out.append(t)
+
+    def walk(el) -> None:
+        tag = local_name(el.tag)
+        if tag in SKIP_TAGS:
+            return
+        container = tag in CONTAINERS
+        buf = [el.text or ""] if container else []
+        for c in el:
+            if local_name(c.tag) in CONTAINERS:
+                if container:
+                    flush(buf)
+                    buf = [c.tail or ""]
+                walk(c)
+            else:
+                # Inline child: its text belongs to this block, not to a block of its own.
+                if container:
+                    buf.append("".join(c.itertext()))
+                    buf.append(c.tail or "")
+                else:
+                    walk(c)
+        if container:
+            flush(buf)
+
+    walk(root)
     return out
 
 

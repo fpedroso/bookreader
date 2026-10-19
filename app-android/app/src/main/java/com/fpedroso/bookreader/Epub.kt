@@ -22,7 +22,11 @@ import java.util.zip.ZipFile
 object EpubParser {
 
     private val BLOCK_TAGS = setOf(
-        "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "dd", "dt", "td", "pre"
+        // `body` and `div` are here because a container's OWN text is a block. Converter and
+        // ebook-splitter output dumps prose as bare text nodes inside <body> with empty <p>
+        // tags as spacers; a real Harry Potter EPUB is exactly that shape, and treating only
+        // leaf block elements as blocks extracted its headings and dropped 500 KB of prose.
+        "body", "div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "dd", "dt", "td", "pre"
     )
     private val SKIP_TAGS = setOf("script", "style", "head", "title", "rt", "rp")
 
@@ -106,44 +110,50 @@ object EpubParser {
         var sb: StringBuilder? = null
         var headingNow = false
 
+        // Emit whatever the active collector has accumulated. Called when a nested block
+        // begins and when a block closes, which is what makes a container's own text a
+        // block in its own right instead of being discarded.
+        fun emit() {
+            val t = sb?.toString()
+                ?.replace(WS, " ")
+                ?.replace(BR, "\n")
+                ?.replace(BREAK_PAD, "\n")
+                ?.replace(BREAK_RUN, "\n")
+                ?.trim()
+            if (!t.isNullOrEmpty()) blocks.add(Block(t, headingNow))
+            sb = null
+            collectDepth = -1
+        }
+
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
                 XmlPullParser.START_TAG -> {
                     depth++
-                    val name = parser.name.lowercase()
+                    // Strip any namespace prefix: `dc:language` must read as `language`, or
+                    // metadata silently never matches. Android's XmlPullParser reports the
+                    // qualified name.
+                    val name = parser.name.substringAfterLast(':').lowercase()
                     if (skipDepth < 0 && name in SKIP_TAGS) skipDepth = depth
                     // A <br> is a real line break *inside* one block: Struwwelpeter keeps a
-                    // whole stanza in a single <p> with <br/> between the lines, so 52 of
-                    // its paragraphs are verse that would otherwise flatten into prose.
+                    // whole stanza in a single <p> with <br/> between the lines.
                     if (skipDepth < 0 && name == "br") sb?.append(BR)
                     if (skipDepth < 0 && name in BLOCK_TAGS) {
-                        // Innermost block wins: a nested block abandons the outer one.
+                        // A nested block flushes the outer container's own text first, so
+                        // `<body> A <p></p> B </body>` yields "A" then "B".
+                        if (collectDepth > 0) emit()
                         collectDepth = depth
                         sb = StringBuilder()
-                        headingNow = name.startsWith("h") && name.length == 2
+                        headingNow = name.length == 2 && name[0] == 'h' && name[1] in '1'..'6'
                     }
                 }
                 XmlPullParser.TEXT -> {
                     if (collectDepth > 0 && skipDepth < 0) sb?.append(parser.text)
                 }
                 XmlPullParser.END_TAG -> {
-                    val name = parser.name.lowercase()
+                    val name = parser.name.substringAfterLast(':').lowercase()
                     if (skipDepth == depth) skipDepth = -1
-                    if (collectDepth == depth && name in BLOCK_TAGS) {
-                        val t = sb?.toString()
-                            // Collapse every whitespace run, including the newlines and
-                            // indentation that Gutenberg's HTML formatting leaves inside a
-                            // paragraph, so only genuine <br> breaks survive.
-                            ?.replace(WS, " ")
-                            ?.replace(BR, "\n")
-                            ?.replace(BREAK_PAD, "\n")
-                            ?.replace(BREAK_RUN, "\n")
-                            ?.trim()
-                        if (!t.isNullOrEmpty()) blocks.add(Block(t, headingNow))
-                        collectDepth = -1
-                        sb = null
-                    }
+                    if (collectDepth == depth && name in BLOCK_TAGS) emit()
                     depth--
                 }
             }
@@ -170,7 +180,7 @@ object EpubParser {
                     for (i in 0 until parser.attributeCount) {
                         attrs[parser.getAttributeName(i).lowercase()] = parser.getAttributeValue(i)
                     }
-                    onTag(parser.name.lowercase(), attrs, depth, null)
+                    onTag(parser.name.substringAfterLast(':').lowercase(), attrs, depth, null)
                 }
                 XmlPullParser.TEXT -> onTag("", emptyMap(), depth, parser.text)
                 XmlPullParser.END_TAG -> depth--

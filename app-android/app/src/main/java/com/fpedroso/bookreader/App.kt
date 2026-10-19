@@ -97,8 +97,12 @@ fun App() {
             // A sidecar only exists for Chinese, so its lang wins; otherwise trust the
             // EPUB's dc:language, and fall back to how the book was imported.
             val bookLang = s?.lang ?: p?.language ?: b.lang
-            val d: Dictionary =
-                if (bookLang.startsWith("de")) GermanDict(ctx) else ChineseDict(ctx)
+            val d: Dictionary? = when {
+                bookLang.startsWith("de") -> GermanDict(ctx)
+                bookLang.startsWith("zh") -> ChineseDict(ctx)
+                // No dictionary: an unlabelled book still reads and still translates.
+                else -> null
+            }
             // Deliberately NOT warmed any more: word lookup is off for now, and warming
             // copies de.db (>100 MB) out of the APK for a feature nothing calls.
             // Translations cached on an earlier read, keyed by block hash.
@@ -213,7 +217,12 @@ fun App() {
             translation = cached
             translateError = null
             translating = cached == null && h != null
-            if (cached == null && h != null) {
+            if (lang.isBlank()) {
+                // No dc:language and no import hint: say so rather than guessing a source
+                // language for ML Kit, which would silently mistranslate.
+                translating = false
+                translateError = "the book's language could not be determined"
+            } else if (cached == null && h != null) {
                 scope.launch {
                     val res = runCatching {
                         withContext(Dispatchers.Default) {
@@ -433,7 +442,9 @@ private fun importPicked(context: Context, uris: List<Uri>): Int {
                 epubFile = epubDest.absolutePath,
                 sidecarFile = sidecarDest?.absolutePath,
                 // A sidecar only ever accompanies a Chinese book.
-                lang = if (sidecarDest != null) "zh" else (parsedBook?.language ?: "zh"),
+                // Unknown is a real answer. Defaulting to "zh" turned a metadata failure into
+                // "this book is Chinese", which is how a German novel got Chinese handling.
+                lang = if (sidecarDest != null) "zh" else (parsedBook?.language ?: ""),
                 addedAt = System.currentTimeMillis(),
             ),
         )
