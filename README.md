@@ -11,24 +11,36 @@ them, and looking up only what you don't.
 ## How it works
 
 ```
-   PC (once per book)                          Phone
-   ─────────────────                           ─────
-   EPUB ──▶ tools/annotate.py ──▶ book.pinyin.json ──┐
-             │  jieba segmentation                   │
-             │  CC-CEDICT readings                    ▼
-             └  pypinyin fallback            EpubParser ──▶ blocks
-                                             annotations ──▶ word tokens
-                                             WordFlow ──▶ tappable words
-                                             Cedict ──▶ definitions on tap
+   Optional (PC, once per book)                Phone
+   ───────────────────────────                 ─────
+   EPUB ─▶ tools/annotate.py ─▶ book.pinyin.json ─┐
+            │  jieba segmentation                 │  (wins when present)
+            │  CC-CEDICT readings                 ▼
+            └  pypinyin fallback         EpubParser ─▶ blocks
+                                         PinyinGen  ─▶ word tokens  ← or generated on device
+                                         WordFlow   ─▶ tappable words
+                                         Cedict     ─▶ definitions on tap
 ```
 
-Two halves, deliberately separate:
+**Reading is language-agnostic; the language handlers are additions on top.** Any EPUB in
+any language imports and renders as plain text, and nothing about opening a book depends on
+segmentation, a dictionary or a sidecar.
 
-- **Annotation is a PC pass.** Chinese word segmentation and reading disambiguation
-  are CPU-heavy and benefit from a big dictionary; doing them once, offline, keeps
-  the phone's job small. The app only *reads* the result.
-- **The app reads EPUBs directly** (hand-rolled: `java.util.zip` + `XmlPullParser`),
-  and merges an optional pinyin sidecar on top.
+- **Chinese** — readings above the characters, tap a word for its meaning. Pinyin is
+  generated *in the app* (`PinyinGen`) from the bundled CC-CEDICT, so importing the EPUB
+  alone is enough. A PC sidecar is still supported and takes precedence, but is no longer
+  required. Generation is lazy and windowed around the reading position, off the main
+  thread: the book renders plain immediately and readings drop in, so slow or failed
+  generation can never block reading. Results are cached as `pinyin.generated.json` in the
+  same sidecar format, so a second open generates nothing.
+- **German** — inflection-resolving tap dictionary (`de.db`). No readings, so no toggle.
+- **Anything else** — plain reading.
+
+`PinyinGen` segments by **maximal matching over CC-CEDICT** rather than jieba: the Kotlin
+port (`jieba-kmp`) is built with Kotlin 2.3.0 metadata and this project is pinned to 2.0.21
+by AGP 8.6.1 / compileSdk 35, so the compiler rejects it outright. The readings barely
+differ, because `annotate.py` already falls back to per-character readings whenever jieba
+groups a phrase that is not itself a headword, and CC-CEDICT covers the fixtures fully.
 
 ### The one coupling that matters
 
@@ -80,7 +92,8 @@ adb push hsk1.epub hsk1.pinyin.json /sdcard/Download/
 ```
 
 Import both files in **one** multi-select gesture — the picker pairs an EPUB with its
-`.pinyin.json` by filename. Without a sidecar the book still reads, just without pinyin.
+`.pinyin.json` by filename. The sidecar is optional: import the EPUB on its own and the app
+generates the readings itself.
 
 ## Annotating a book
 

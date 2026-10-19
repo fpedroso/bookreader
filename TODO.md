@@ -4,31 +4,6 @@ Ideas and known gaps, roughly in the order they'd be worth doing. Nothing here i
 committed to; it's a parking lot. See the *Design notes* and *Known gaps* sections of
 [README.md](README.md) for the reasoning behind the constraints mentioned below.
 
-## Pinyin generation in the app
-
-**Decided — this is how pinyin works.** Pinyin is generated inside the app rather than on
-the desktop, so importing a Chinese EPUB is enough to read it with readings: no sidecar to
-prepare first.
-
-Today pinyin is a **PC pass** (`tools/annotate.py`): jieba segments, CC-CEDICT supplies
-readings, and the result ships as a `.pinyin.json` sidecar keyed by paragraph hash.
-Generating it natively removes that desktop step.
-
-- Segmentation on-device: [`jieba-kmp`](https://klibs.io/project/ErolC/jieba-kmp)
-  (`cn.erolc.jieba:jieba-kmp`) is a Kotlin Multiplatform port. Its own measurements put
-  dictionary init at ~1-2 s on Android, which is acceptable if done once per book and
-  cached.
-- Readings: CC-CEDICT is already bundled as `cedict.db`, so no new asset is needed —
-  word lookup, then per-character fallback, is the same chain `annotate.py` uses.
-- Store the result in the same sidecar format so the reader path is unchanged, and keep
-  the sidecar-keyed-by-hash design: it means a partially annotated book still renders
-  correctly rather than showing wrong pinyin everywhere.
-- The `.pinyin.json` sidecar stays *supported* — books annotated on the PC keep working —
-  but stops being *required*: import has to succeed from the EPUB alone, and a book with
-  no sidecar must get readings generated on first open.
-- Sizing: 113 MB of Chinese novel produced a 12 MB sidecar measured earlier; worth
-  regenerating lazily per chapter rather than for the whole book up front.
-
 ## Content: a store of properly-licensed ebooks
 
 A browseable list of free, correctly-licensed sources per language. **Licensing is the
@@ -111,6 +86,10 @@ Carried from README so they aren't lost:
 - Hyphenated German compounds (`Guck-in-die-Luft`, `Zappel-Philipp`) arrive as one token
   and do not resolve. German is head-final, so retrying the last segment would fix most.
 - German asset is 113 MB on disk (~40 MB in the APK). The inflection table is the lever.
+- In-app pinyin: a bare, context-dependent character still takes CC-CEDICT's first row
+  (`得` → "dé" rather than the particle "de"). Words are fine — 觉得 matches as a unit — so
+  only standalone characters are ambiguous, and there is no POS tag to disambiguate from.
+  Proper-noun readings are already avoided by row ordering.
 - No bookmarks, no highlights, no Anki export.
 - Only EPUB3 XHTML text: no fixed-layout, no PDF, no cover thumbnails.
 - Library metadata is a JSON manifest; it'll want a real database eventually.

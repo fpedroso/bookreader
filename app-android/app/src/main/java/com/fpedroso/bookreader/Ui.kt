@@ -124,6 +124,12 @@ sealed interface RowItem {
          * uses the per-word box flow so readings can sit above the characters.
          */
         val tokenRanges: List<IntRange>? = null,
+        /**
+         * Block hash for [Annotations.key] of [text], set for Chinese blocks that have no
+         * PC sidecar. The reader looks readings up in the generated map by this key, so
+         * rows are built once and re-render in place as annotation arrives.
+         */
+        val hash: String? = null,
     ) : RowItem
 }
 
@@ -136,6 +142,12 @@ fun ReaderScreen(
     /** False for books with no readings (German), where the switch would do nothing. */
     pinyinToggleVisible: Boolean,
     initialIndex: Int,
+    /**
+     * In-app generated readings by block hash. Empty when the book has a PC sidecar or no
+     * handler for its language. Passed as state so a row picks up its readings as soon as
+     * generation finishes, without rebuilding the row list.
+     */
+    generated: Map<String, List<Token>> = emptyMap(),
     onTogglePinyin: (Boolean) -> Unit,
     onWordTap: (Token) -> Unit,
     onProgress: (Int) -> Unit,
@@ -180,11 +192,13 @@ fun ReaderScreen(
                     )
                     is RowItem.Para -> {
                         Spacer(Modifier.height(if (row.heading) 10.dp else 6.dp))
-                        val tokens = row.tokens
+                        // A PC sidecar wins; otherwise in-app generation fills this in
+                        // lazily, so the row re-renders with readings once they exist.
+                        val tokens = row.tokens ?: row.hash?.let { generated[it] }
                         when {
                             tokens == null ->
-                                // No annotation and no tokeniser (e.g. a Chinese book whose
-                                // sidecar is missing): readable, just not tappable.
+                                // Not annotated yet, or a language with no handler:
+                                // readable straight away, becomes tappable when ready.
                                 Text(row.text, fontSize = 19.sp, lineHeight = 28.sp)
                             row.tokenRanges != null ->
                                 ProseText(row.text, tokens, row.tokenRanges, onWordTap)
