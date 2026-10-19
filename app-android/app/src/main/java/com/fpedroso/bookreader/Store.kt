@@ -69,10 +69,9 @@ object Store {
 /**
  * The block hash.
  *
- * SHA-1 of the text with all whitespace removed, first 16 hex chars. It is the translation
- * cache key (`"<blockhash>#<index>"`), so it must be stable across imports, scrolls and
- * re-reads. Whitespace is stripped so a block hashes the same however the extractor
- * happened to normalise it.
+ * SHA-1 of the text with all whitespace removed, first 16 hex chars, so the same text hashes
+ * the same however the extractor happened to normalise it. Also the basis of the translation
+ * cache key - see [translationKey].
  */
 object Annotations {
     fun key(text: String): String {
@@ -85,3 +84,21 @@ object Annotations {
         return hex.toString()
     }
 }
+
+/**
+ * The translation cache key for a unit of text.
+ *
+ * The hash of the SOURCE TEXT - deliberately not `"<blockhash>#<index>"` any more.
+ *
+ * The block-and-index form looked stable and was not: when the sentence splitter changed, an
+ * unchanged block's index 0 became a different piece of text, so the cache handed back the
+ * translation of the OLD unit and the modal showed a translation that did not match the source
+ * printed above it. Tapping `Mr. und Mrs.` showed the translation of the entire sentence that
+ * fragment used to be part of - which reads as a translation-quality problem, not a key problem,
+ * and is exactly how it was nearly misdiagnosed.
+ *
+ * The text is the only thing a translation depends on, so it is the only thing the key may
+ * depend on. Identical text shares one entry wherever it appears in the book; different text
+ * cannot collide, whatever the splitter does next.
+ */
+fun translationKey(source: String): String = Annotations.key(source)

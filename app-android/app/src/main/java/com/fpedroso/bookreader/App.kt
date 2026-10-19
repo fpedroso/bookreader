@@ -253,9 +253,10 @@ fun App() {
         val onSentenceTap: (RowItem, Int) -> Unit = { para, i ->
             // The composable the finger landed on IS the sentence, so there is nothing to
             // resolve: index i names it directly.
+            val source = para.sentences?.getOrNull(i) ?: para.text
             openTranslation(
-                key = para.hash?.let { "$it#$i" },
-                source = para.sentences?.getOrNull(i) ?: para.text,
+                key = translationKey(source),
+                source = source,
                 blockLang = para.lang,
             )
         }
@@ -265,7 +266,7 @@ fun App() {
             rows = rows,
             initialIndex = current.lastBlock,
             selectedKey = tapKey,
-            onParagraphTap = { para -> openTranslation(para.hash, para.text, para.lang) },
+            onParagraphTap = { para -> openTranslation(translationKey(para.text), para.text, para.lang) },
             onSentenceTap = onSentenceTap,
             onProgress = { lastIndex = it },
             onBack = closeBook,
