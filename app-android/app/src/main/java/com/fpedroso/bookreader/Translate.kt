@@ -2,11 +2,17 @@ package com.fpedroso.bookreader
 
 import android.content.Context
 import com.google.android.gms.tasks.Task
+import com.google.mlkit.common.model.RemoteModelManager
+import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.nl.languageid.LanguageIdentifier
+import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.Serializable
+import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -49,6 +55,13 @@ object Translate {
     private const val MAX_CHARS = 400
 
     private val clients = HashMap<String, Translator>()
+
+    /**
+     * ML Kit Language Identification, used only as the last resort. Created lazily: the client
+     * exists for the life of the process and owns a native detector, so making one would be
+     * waste on the common path where the EPUB already says what the block is.
+     */
+    private val languageId: LanguageIdentifier by lazy { LanguageIdentification.getClient() }
 
     /**
      * ML Kit's language constants are plain BCP-47 tags ("de", "zh"), so our code is passed
@@ -112,6 +125,44 @@ object Translate {
         return translate(text).await()
     }
 
+    // -------------------------------------------------------- language
+
+    /**
+     * Whether the offline model for this pair is still missing, so the dialog can say what the
+     * wait is instead of looking hung: the first translation in a language downloads ~30 MB
+     * and can take a minute and a half with nothing on screen.
+     *
+     * Translator exposes no download progress at all - only `downloadModelIfNeeded` - but the
+     * model manager does answer "is the model here", which is the part the UI needs. False on
+     * any failure: a hint we cannot stand behind is worse than the plain "Translating…".
+     */
+    suspend fun needsModelDownload(from: String): Boolean = runCatching {
+        val manager = RemoteModelManager.getInstance()
+        val sourceReady = manager.isModelDownloaded(TranslateRemoteModel.Builder(tag(from)).build()).await()
+        val targetReady = manager.isModelDownloaded(TranslateRemoteModel.Builder(TARGET).build()).await()
+        sourceReady != true || targetReady != true
+    }.getOrDefault(false)
+
+    /**
+     * Language Identification on the text itself - the LAST resort, after the block's own
+     * lang/xml:lang, the document, dc:language and the import hint have all said nothing.
+     *
+     * It is not a substitute for a declared language: a confident-sounding wrong answer here
+     * would send prose to the wrong model silently, which is the failure this path exists to
+     * prevent. Null means "no answer", and the caller reports that rather than guessing.
+     *
+     * Call off the main thread.
+     */
+    suspend fun identify(text: String): String? {
+        val detected = runCatching { languageId.identifyLanguage(text).await() }.getOrNull()
+        // "und" is ML Kit's own "I cannot tell" - a non-answer, not a language.
+        if (detected.isNullOrBlank() || detected == LanguageIdentifier.UNDETERMINED_LANGUAGE_TAG) return null
+        val code = detected.lowercase().take(2)
+        // Only what the Translator itself can use: an unsupported tag would come back as an
+        // obscure model error instead of our own honest "could not be determined".
+        return code.takeIf { TranslateLanguage.fromLanguageTag(it) != null }
+    }
+
     /**
      * Play Services Task -> coroutine. Written here rather than adding
      * kotlinx-coroutines-play-services, whose version would then need to stay aligned with
@@ -123,3 +174,36 @@ object Translate {
         addOnCanceledListener { cont.cancel() }
     }
 }
+
+// ------------------------------------------------------------- language naming
+
+/**
+ * True when there is nothing to translate: the source already IS the target language.
+ *
+ * A German novel's front matter (title page, copyright, dedication) is commonly English, and
+ * asking the model to turn English into English downloads a model to hand back the same words.
+ */
+internal fun alreadyTarget(source: String?): Boolean =
+    source != null && source.trim().lowercase().take(2) == Translate.TARGET
+
+/**
+ * "German → English" for the modal, derived from the resolved source language for this
+ * sentence; null when there is nothing to translate (the source is the target) or no source
+ * language was resolved.
+ */
+internal fun languagePair(source: String?): String? {
+    if (source.isNullOrBlank() || alreadyTarget(source)) return null
+    return "${languageName(source)} → ${languageName(Translate.TARGET)}"
+}
+
+/**
+ * The English name of an ISO code, e.g. "de" -> "German".
+ *
+ * From the platform's own CLDR data via [Locale] rather than a hand-kept table: any code the
+ * device knows a name for works, including ones this app has no other handling for. An
+ * unknown code comes back as the code itself, which is still better than a wrong name.
+ */
+internal fun languageName(code: String): String =
+    Locale(code.trim().lowercase().take(2))
+        .getDisplayLanguage(Locale.ENGLISH)
+        .replaceFirstChar { it.uppercase() }

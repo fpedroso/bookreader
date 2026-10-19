@@ -62,8 +62,11 @@ fun App() {
     // produced on-device by ML Kit.
     var tapKey by remember { mutableStateOf<String?>(null) }
     var tapSource by remember { mutableStateOf("") }
+    var tapLang by remember { mutableStateOf<String?>(null) }
     var translation by remember { mutableStateOf<String?>(null) }
     var translating by remember { mutableStateOf(false) }
+    var downloading by remember { mutableStateOf(false) }
+    var alreadyEnglish by remember { mutableStateOf(false) }
     var translateError by remember { mutableStateOf<String?>(null) }
     var translations by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var lastIndex by remember { mutableStateOf(0) }
@@ -170,52 +173,84 @@ fun App() {
 
         // Tap a unit -> its translation, cached by key so re-tapping is free. The unit is
         // one sentence, keyed "<hash>#<index>", or a whole paragraph for headings and verse.
-        // Off the main thread: the first call in a language also downloads its ~30 MB model.
-        fun openTranslation(key: String?, source: String) {
+        //
+        // The source language is resolved per BLOCK, not per book:
+        //   1. the block's own lang/xml:lang, or an ancestor's - resolved by the parser
+        //   2. the document's <html lang> - also the parser, as the outermost ancestor
+        //   3. dc:language, which the parser applies as the block's fallback
+        //   4. how the book was imported (BookMeta.lang)
+        //   5. only if all of those are silent: ML Kit Language Identification on the text
+        // A German novel whose front matter is English is the case this exists for: at book
+        // level the prose is "German", and it was being translated as German - to nothing.
+        //
+        // Off the main thread: steps 5 and the translation itself can each take seconds, and
+        // the first translation in a language also downloads its ~30 MB model.
+        fun openTranslation(key: String?, source: String, blockLang: String?) {
+            // Levels 1-4, known without any work: the block's own lang/xml:lang (or an
+            // ancestor's, or the document's <html lang>), then dc:language, then the
+            // import-time hint. Only if all of those are silent is Language ID called.
+            val declared = blockLang?.takeIf { it.isNotBlank() } ?: lang.takeIf { it.isNotBlank() }
             tapKey = key
             tapSource = source
-            val cached = key?.let { translations[it] }
-            translation = cached
+            // Set up front, not from the coroutine: a cached translation never enters it, and
+            // the modal still has to say which languages the pair is.
+            tapLang = declared
+            translation = key?.let { translations[it] }
+            alreadyEnglish = alreadyTarget(declared)
+            downloading = false
             translateError = null
-            translating = cached == null && key != null
-            when {
-                // No dc:language and no import hint: say so rather than guessing a source
-                // language for ML Kit, which would silently mistranslate.
-                lang.isBlank() -> {
+            translating = false
+            if (key == null || translation != null) return
+
+            translating = true
+            scope.launch {
+                val src = declared ?: withContext(Dispatchers.Default) { Translate.identify(source) }
+                if (src == null) {
+                    // Reported rather than guessed: a made-up source language mistranslates
+                    // silently, which is worse than saying we do not know.
                     translating = false
                     translateError = "the book's language could not be determined"
+                    return@launch
                 }
-                cached == null && key != null -> scope.launch {
-                    val res = runCatching {
-                        withContext(Dispatchers.Default) {
-                            Translate.paragraph(ctx, lang, source)
-                        }
-                    }
+                tapLang = src
+                if (alreadyTarget(src)) {
+                    // English into English: the model would be downloaded to hand back the
+                    // same words, so it is not called at all.
                     translating = false
-                    res.fold(
-                        onSuccess = { text ->
-                            translation = text
-                            translations = translations + (key to text)
-                            // Throttled: re-encoding a growing map on every tap costs more
-                            // than the translation. closeBook always writes a final copy.
-                            val now = System.currentTimeMillis()
-                            if (now - lastTransPersist > 5_000) {
-                                lastTransPersist = now
-                                val snap = translations
-                                withContext(Dispatchers.IO) {
-                                    persistTranslations(ctx, current.id, snap)
-                                }
-                            }
-                        },
-                        onFailure = { e ->
-                            translateError = e.message ?: e.javaClass.simpleName
-                        },
-                    )
+                    alreadyEnglish = true
+                    return@launch
                 }
+                downloading = withContext(Dispatchers.Default) { Translate.needsModelDownload(src) }
+                val res = runCatching {
+                    withContext(Dispatchers.Default) {
+                        Translate.paragraph(ctx, src, source)
+                    }
+                }
+                downloading = false
+                translating = false
+                res.fold(
+                    onSuccess = { text ->
+                        translation = text
+                        translations = translations + (key to text)
+                        // Throttled: re-encoding a growing map on every tap costs more
+                        // than the translation. closeBook always writes a final copy.
+                        val now = System.currentTimeMillis()
+                        if (now - lastTransPersist > 5_000) {
+                            lastTransPersist = now
+                            val snap = translations
+                            withContext(Dispatchers.IO) {
+                                persistTranslations(ctx, current.id, snap)
+                            }
+                        }
+                    },
+                    onFailure = { e ->
+                        translateError = e.message ?: e.javaClass.simpleName
+                    },
+                )
             }
         }
 
-        val onSentenceTap: (RowItem.Para, Int) -> Unit = { para, i ->
+        val onSentenceTap: (RowItem, Int) -> Unit = { para, i ->
             // The range is the source text: the reader renders row.text as one paragraph, so
             // the substring is the sentence the finger landed on. Trimmed because a range
             // starts at the space that follows the previous sentence.
@@ -223,6 +258,7 @@ fun App() {
             openTranslation(
                 key = para.hash?.let { "$it#$i" },
                 source = range?.let { para.text.substring(it.first, it.last + 1).trim() } ?: para.text,
+                blockLang = para.lang,
             )
         }
 
@@ -231,7 +267,7 @@ fun App() {
             rows = rows,
             initialIndex = current.lastBlock,
             selectedKey = tapKey,
-            onParagraphTap = { para -> openTranslation(para.hash, para.text) },
+            onParagraphTap = { para -> openTranslation(para.hash, para.text, para.lang) },
             onSentenceTap = onSentenceTap,
             onProgress = { lastIndex = it },
             onBack = closeBook,
@@ -242,6 +278,9 @@ fun App() {
                 translation = translation,
                 busy = translating,
                 error = translateError,
+                pair = languagePair(tapLang),
+                alreadyEnglish = alreadyEnglish,
+                downloading = downloading,
                 onDismiss = { tapKey = null },
             )
         }
@@ -268,17 +307,22 @@ internal fun sentenceUnits(text: String, heading: Boolean, lang: String): List<I
 
 private fun buildRows(book: EpubParser.Book, lang: String): List<RowItem> {
     val out = ArrayList<RowItem>()
+    // No chapter-title row: the parser has no title to give one (see EpubParser.Chapter), and
+    // the reader does not need it - a chapter announces itself with the <h1>-<h6> headings the
+    // body already contains, which arrive here as heading blocks.
     for (ch in book.chapters) {
-        ch.title?.takeIf { it.isNotBlank() }?.let { out.add(RowItem.ChapterHead(it)) }
         for (bl in ch.blocks) {
             // Every paragraph carries its block hash: it is the key for the sentence
             // translation cache (`"<hash>#<index>"`) and the tap target for the modal.
             out.add(
-                RowItem.Para(
+                RowItem(
                     text = bl.text,
                     heading = bl.heading,
                     hash = Annotations.key(bl.text),
                     sentences = sentenceUnits(bl.text, bl.heading, lang),
+                    // The block's own resolved language, so the tap translates with the
+                    // language that block is actually written in.
+                    lang = bl.lang,
                 )
             )
         }

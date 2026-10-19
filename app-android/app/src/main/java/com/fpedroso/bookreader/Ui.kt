@@ -136,28 +136,40 @@ private val HEAD_GAP_BOTTOM = 10.dp
 
 // ------------------------------------------------------------------- reader
 
-sealed interface RowItem {
-    data class ChapterHead(val title: String) : RowItem
-    data class Para(
-        val text: String,
-        val heading: Boolean,
-        /**
-         * Block hash for [Annotations.key] of [text]. It is the translation cache key and the
-         * tap target. Null never happens for parsed prose, but a row without it is simply
-         * not tappable.
-         */
-        val hash: String? = null,
-        /**
-         * Character ranges of the sentences in [text], for prose languages: each is the unit
-         * of translation and the rectangle the tap hit-test resolves against. The paragraph
-         * itself is rendered as ONE continuous [text] so the prose flows naturally; the
-         * ranges only exist to turn a tap position into a sentence.
-         *
-         * Null for headings and verse, which are translated as a whole paragraph instead.
-         */
-        val sentences: List<IntRange>? = null,
-    ) : RowItem
-}
+/**
+ * One row of the reading view. There is a single row type: prose, verse, or a heading - all
+ * rendered as text, all tappable. (A chapter-title row used to exist here and never rendered:
+ * nothing ever produced one, because the parser has no source for a chapter title.)
+ */
+data class RowItem(
+    val text: String,
+    val heading: Boolean,
+    /**
+     * Block hash for [Annotations.key] of [text]. It is the translation cache key and the
+     * tap target. Null never happens for parsed prose, but a row without it is simply
+     * not tappable.
+     */
+    val hash: String? = null,
+    /**
+     * Character ranges of the sentences in [text], for prose languages: each is the unit
+     * of translation and the rectangle the tap hit-test resolves against. The paragraph
+     * itself is rendered as ONE continuous [text] so the prose flows naturally; the
+     * ranges only exist to turn a tap position into a sentence.
+     *
+     * Null for headings and verse, which are translated as a whole paragraph instead.
+     */
+    val sentences: List<IntRange>? = null,
+    /**
+     * The language THIS block is written in, resolved by the parser from the document's
+     * own lang/xml:lang attributes with the book's dc:language as the fallback. Null only
+     * when the book declared nothing either - the tap then falls back to the import-time
+     * hint and finally to ML Kit Language Identification.
+     *
+     * Per block because one book can hold two languages: a German novel's front matter is
+     * routinely English, and translating it as German silently produces nothing useful.
+     */
+    val lang: String? = null,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -170,8 +182,8 @@ fun ReaderScreen(
      * key is its block hash; a sentence key is `"<hash>#<index>"`.
      */
     selectedKey: String? = null,
-    onParagraphTap: (RowItem.Para) -> Unit,
-    onSentenceTap: (RowItem.Para, Int) -> Unit,
+    onParagraphTap: (RowItem) -> Unit,
+    onSentenceTap: (RowItem, Int) -> Unit,
     onProgress: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -195,86 +207,73 @@ fun ReaderScreen(
             modifier = Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
         ) {
             items(rows) { row ->
-                when (row) {
-                    is RowItem.ChapterHead -> Text(
-                        row.title,
-                        // A chapter title is the only structure the reader gets besides the
-                        // prose rhythm, so it announces itself with size and weight. See the
-                        // heading branch below - the two must match.
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = HEAD_GAP_TOP, bottom = HEAD_GAP_BOTTOM),
+                // Generous space between paragraphs, deliberately. The publisher CSS
+                // used `text-indent: 1.5em` with no paragraph margin - the dense
+                // print convention - which reads cramped on a phone. Space between
+                // blocks is what gives the page room to breathe.
+                Spacer(Modifier.height(if (row.heading) HEAD_GAP_TOP else PARA_GAP))
+                val shape = RoundedCornerShape(10.dp)
+                val ranges = row.sentences
+                if (ranges != null) {
+                    // One continuous paragraph, exactly the prose flow a non-sentence
+                    // row gets: sentence boundaries are NOT marked in any way. The
+                    // split only survives as character ranges, so the whole unit is a
+                    // single Text and the tap position is hit-tested against the
+                    // layout to find which sentence the finger landed on.
+                    var layout by remember(row.text) {
+                        mutableStateOf<TextLayoutResult?>(null)
+                    }
+                    Text(
+                        row.text,
+                        fontSize = 19.sp,
+                        lineHeight = 30.sp,
+                        onTextLayout = { layout = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(row.hash, ranges) {
+                                if (row.hash == null) return@pointerInput
+                                detectTapGestures { pos ->
+                                    val l = layout ?: return@detectTapGestures
+                                    onSentenceTap(
+                                        row,
+                                        Sentences.indexAt(
+                                            ranges,
+                                            l.getOffsetForPosition(pos),
+                                        ),
+                                    )
+                                }
+                            },
                     )
-                    is RowItem.Para -> {
-                        // Generous space between paragraphs, deliberately. The publisher CSS
-                        // used `text-indent: 1.5em` with no paragraph margin - the dense
-                        // print convention - which reads cramped on a phone. Space between
-                        // blocks is what gives the page room to breathe.
-                        Spacer(Modifier.height(if (row.heading) HEAD_GAP_TOP else PARA_GAP))
-                        val shape = RoundedCornerShape(10.dp)
-                        val ranges = row.sentences
-                        if (ranges != null) {
-                            // One continuous paragraph, exactly the prose flow a non-sentence
-                            // row gets: sentence boundaries are NOT marked in any way. The
-                            // split only survives as character ranges, so the whole unit is a
-                            // single Text and the tap position is hit-tested against the
-                            // layout to find which sentence the finger landed on.
-                            var layout by remember(row.text) {
-                                mutableStateOf<TextLayoutResult?>(null)
-                            }
+                } else {
+                    // The whole paragraph is the tap target (headings, verse):
+                    // outlined while its translation modal is open, so you can see
+                    // which one it is.
+                    val selected = row.hash != null && row.hash == selectedKey
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(shape)
+                            .then(
+                                if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, shape)
+                                else Modifier
+                            )
+                            .clickable(enabled = row.hash != null) { onParagraphTap(row) }
+                            .padding(if (selected) 10.dp else 0.dp),
+                    ) {
+                        if (row.heading) {
+                            // A title has no box to mark it any more, so it is set
+                            // apart by size and weight only - larger and heavier than
+                            // the 19sp body, plus space below so the first paragraph
+                            // does not crowd it. Left-aligned, onBackground colour:
+                            // no tint, no border.
                             Text(
                                 row.text,
-                                fontSize = 19.sp,
-                                lineHeight = 30.sp,
-                                onTextLayout = { layout = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .pointerInput(row.hash, ranges) {
-                                        if (row.hash == null) return@pointerInput
-                                        detectTapGestures { pos ->
-                                            val l = layout ?: return@detectTapGestures
-                                            onSentenceTap(
-                                                row,
-                                                Sentences.indexAt(
-                                                    ranges,
-                                                    l.getOffsetForPosition(pos),
-                                                ),
-                                            )
-                                        }
-                                    },
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(bottom = HEAD_GAP_BOTTOM),
                             )
                         } else {
-                            // The whole paragraph is the tap target (headings, verse):
-                            // outlined while its translation modal is open, so you can see
-                            // which one it is.
-                            val selected = row.hash != null && row.hash == selectedKey
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(shape)
-                                    .then(
-                                        if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, shape)
-                                        else Modifier
-                                    )
-                                    .clickable(enabled = row.hash != null) { onParagraphTap(row) }
-                                    .padding(if (selected) 10.dp else 0.dp),
-                            ) {
-                                if (row.heading) {
-                                    // A title has no box to mark it any more, so it is set
-                                    // apart by size and weight only - larger and heavier than
-                                    // the 19sp body, plus space below so the first paragraph
-                                    // does not crowd it. Left-aligned, onBackground colour:
-                                    // no tint, no border.
-                                    Text(
-                                        row.text,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(bottom = HEAD_GAP_BOTTOM),
-                                    )
-                                } else {
-                                    Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
-                                }
-                            }
+                            Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
                         }
                     }
                 }
@@ -300,6 +299,22 @@ fun TranslationDialog(
     translation: String?,
     busy: Boolean,
     error: String?,
+    /**
+     * "German → English" for the resolved source language of this unit, or null when there is
+     * nothing to translate (the source is already English) or its language is not known yet.
+     */
+    pair: String? = null,
+    /**
+     * The unit is already in the target language, so no model was called. This is the ordinary
+     * outcome on a German book's English front matter.
+     */
+    alreadyEnglish: Boolean = false,
+    /**
+     * ML Kit is fetching the ~30 MB offline model for this pair. Distinct from ordinary
+     * "Translating…" because it is a large, one-off download; it never shows once the model is
+     * on the device.
+     */
+    downloading: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -309,11 +324,28 @@ fun TranslationDialog(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(source, style = MaterialTheme.typography.bodySmall)
+                pair?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Spacer(Modifier.height(14.dp))
                 when {
-                    // The first call also downloads the ~30MB language model, so this can
-                    // sit here for a while on a cold device.
+                    // Whether the model is downloading is known as soon as the language is, so
+                    // it outranks the generic busy state: it is the answer to "why is this
+                    // taking 90 seconds".
+                    downloading -> Text(
+                        "Downloading the offline model (~30 MB) — first time only…",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     busy -> Text("Translating…", style = MaterialTheme.typography.bodySmall)
+                    alreadyEnglish -> Text(
+                        "This is already in English.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     error != null -> Text(
                         "Translation unavailable — $error",
                         style = MaterialTheme.typography.bodySmall,

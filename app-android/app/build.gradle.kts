@@ -94,6 +94,16 @@ dependencies {
     // that ever matters.
     implementation("com.google.mlkit:translate:17.0.3")
 
+    // Language Identification, the last resort for a block whose language nothing declares:
+    // 100+ languages, entirely on device. Pre-flighted before use, because Google artifacts
+    // are not on Maven Central and this project picks compileSdk/Kotlin pins carefully:
+    // 17.0.6 is the newest stable on dl.google.com/dl/android/maven2, the AAR declares no
+    // aar-metadata (so no minCompileSdk floor) and carries no Kotlin metadata (Java-only, so
+    // Kotlin 2.0.21 is safe), and it adds only language-id-common plus its own ~1 MB native
+    // .so per ABI - the play-services/firebase/mlkit-common versions it names are the ones
+    // translate above already brings.
+    implementation("com.google.mlkit:language-id:17.0.6")
+
     // Unit tests. kxml2 supplies XmlPullParser on the JVM so the production
     // parser can be exercised against the PC-side annotator's output.
     testImplementation("junit:junit:4.13.2")

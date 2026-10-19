@@ -31,8 +31,29 @@ object EpubParser {
     )
     private val SKIP_TAGS = setOf("script", "style", "head", "title", "rt", "rp")
 
-    data class Block(val text: String, val heading: Boolean)
-    data class Chapter(val title: String?, val blocks: List<Block>)
+    /**
+     * One block of text, with the language that block is written in.
+     *
+     * [lang] is the language the document itself declares for this block: the nearest
+     * ancestor `lang`/`xml:lang`, then the document's `<html lang>`, then the book's
+     * `dc:language`. Null only when the document carried no declaration at all, which leaves
+     * the caller two more levels (the import-time hint, then Language Identification).
+     *
+     * Per block rather than per book because a book's declared language is often wrong for
+     * part of it: a German novel's front matter is routinely English, and sending that prose
+     * to the German model translates nothing and says nothing.
+     */
+    data class Block(val text: String, val heading: Boolean, val lang: String? = null)
+
+    /**
+     * The blocks of one document in the spine.
+     *
+     * No title field: the parser never had a source for one. A chapter title would come from the
+     * EPUB's NCX/nav TOC, which this parser does not read, and the natural fallback - the
+     * document's `<title>` - is deliberately skipped (see SKIP_TAGS), so it is never body text.
+     * Headings inside the body are how a chapter announces itself here.
+     */
+    data class Chapter(val blocks: List<Block>)
     data class Book(
         val title: String?,
         val chapters: List<Chapter>,
@@ -81,8 +102,11 @@ object EpubParser {
                 .firstOrNull { it.name.equals(path, true) } ?: continue
             if (!Regex("\\.x?html?$", RegexOption.IGNORE_CASE).containsMatchIn(entry.name)) continue
             val bytes = zip.getInputStream(entry).use(InputStream::readBytes)
-            val (chapterTitle, blocks) = parseChapter(bytes)
-            if (blocks.isNotEmpty()) chapters.add(Chapter(chapterTitle, blocks))
+            val blocks = parseChapter(bytes)
+            // dc:language is the third level of the per-block precedence, applied here so a
+            // block that carries no language of its own still arrives with one.
+            val blocksWithLang = blocks.map { if (it.lang == null) it.copy(lang = language) else it }
+            if (blocksWithLang.isNotEmpty()) chapters.add(Chapter(blocksWithLang))
         }
         Book(bookTitle, chapters, language)
     }
@@ -98,12 +122,11 @@ object EpubParser {
     }
 
     /** Pull-parser pass over one XHTML resource. */
-    private fun parseChapter(bytes: ByteArray): Pair<String?, List<Block>> {
+    private fun parseChapter(bytes: ByteArray): List<Block> {
         val parser = newParser()
         parser.setInput(bytes.inputStream(), null)
 
         val blocks = ArrayList<Block>()
-        var chapterTitle: String? = null
         var depth = 0
         var skipDepth = -1            // >0 while inside script/style/head/title/rt/rp
 
@@ -115,10 +138,17 @@ object EpubParser {
         // child. With a single buffer, `</h2>` tore down the body's collector and the prose
         // after it was lost - which is why a real EPUB whose prose is bare text inside
         // <body> still showed only its headings, even after the extractor was "fixed".
-        class Frame(val depth: Int, val heading: Boolean) {
+        class Frame(val depth: Int, val heading: Boolean, val lang: String?) {
             val sb = StringBuilder()
         }
         val stack = ArrayList<Frame>()
+
+        // Element languages, innermost wins, kept with the depth so a closed element stops
+        // applying to what follows it. This is the format's own mechanism: `<html lang>`,
+        // an ancestor `<div xml:lang>`, or the block element's own attribute. Without it a
+        // German book's English front matter is invisible - the book-level dc:language is
+        // the only thing consulted and it is wrong for exactly that part of the book.
+        val langs = ArrayList<Pair<Int, String>>()
 
         /** Emit the top frame's text as a block and reset that frame's buffer. */
         fun flushTop() {
@@ -129,7 +159,7 @@ object EpubParser {
                 .replace(BREAK_PAD, "\n")
                 .replace(BREAK_RUN, "\n")
                 .trim()
-            if (t.isNotEmpty()) blocks.add(Block(t, f.heading))
+            if (t.isNotEmpty()) blocks.add(Block(t, f.heading, f.lang))
             f.sb.setLength(0)
         }
 
@@ -142,6 +172,9 @@ object EpubParser {
                     // metadata silently never matches. Android's XmlPullParser reports the
                     // qualified name.
                     val name = parser.name.substringAfterLast(':').lowercase()
+                    // Pushed before the frame below, so a block's OWN lang attribute counts
+                    // as the innermost declaration, and an ancestor's stays in scope.
+                    elementLang(parser)?.let { langs.add(depth to it) }
                     if (skipDepth < 0 && name in SKIP_TAGS) skipDepth = depth
                     // A <br> is a real line break *inside* one block: a verse stanza lives in
                     // a single <p> with <br/> between its lines.
@@ -151,7 +184,7 @@ object EpubParser {
                         // `<body> A <p></p> B </body>` yields "A" then "B".
                         flushTop()
                         val heading = name.length == 2 && name[0] == 'h' && name[1] in '1'..'6'
-                        stack.add(Frame(depth, heading))
+                        stack.add(Frame(depth, heading, langs.lastOrNull()?.second))
                     }
                 }
                 XmlPullParser.TEXT -> {
@@ -160,6 +193,9 @@ object EpubParser {
                 XmlPullParser.END_TAG -> {
                     val name = parser.name.substringAfterLast(':').lowercase()
                     if (skipDepth == depth) skipDepth = -1
+                    // Same depth guard as the frame stack: a malformed document must not pop
+                    // a language that is still in scope for its siblings.
+                    if (langs.isNotEmpty() && langs.last().first == depth) langs.removeAt(langs.size - 1)
                     // Only pop when the depth matches, so malformed markup cannot unbalance
                     // the stack and mis-assign text to the wrong block.
                     if (name in BLOCK_TAGS && stack.isNotEmpty() && stack.last().depth == depth) {
@@ -171,10 +207,37 @@ object EpubParser {
             }
             event = parser.next()
         }
-        return chapterTitle to blocks
+        return blocks
     }
 
     // ------------------------------------------------------------ opf helpers
+
+    /**
+     * The language this element declares, from `lang` or `xml:lang`, or null.
+     *
+     * The parser is namespace-unaware - it is the same XmlPullParser under JVM tests - so a
+     * prefixed attribute arrives as the qualified name `xml:lang`, while XHTML also allows
+     * the bare `lang`. Both mean the same thing, hence the suffix match; a genuinely
+     * namespaced foreign attribute ending in `:lang` is not a thing in practice, and the
+     * spec's own mechanism only ever means these two.
+     *
+     * `und` is ISO 639's "undetermined" and is treated as no answer, so the block falls
+     * through to the next level of precedence rather than pinning "und" on it.
+     */
+    private fun elementLang(parser: XmlPullParser): String? {
+        for (i in 0 until parser.attributeCount) {
+            val name = parser.getAttributeName(i).lowercase()
+            if (name != "lang" && !name.endsWith(":lang")) continue
+            val raw = parser.getAttributeValue(i)?.trim()?.lowercase() ?: continue
+            // Checked BEFORE truncating: "und" is three characters, so take(2) would have made
+            // it "un" and quietly labelled the block "Un" - which no model can translate.
+            if (raw.isEmpty() || raw == "und") continue
+            // "en-US" -> "en", the same normalisation dc:language gets, because everything
+            // downstream (sentence splitting, ML Kit) works in two-letter codes.
+            return raw.take(2)
+        }
+        return null
+    }
 
     private fun eachElement(
         bytes: ByteArray,
