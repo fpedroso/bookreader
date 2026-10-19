@@ -2,5 +2,5 @@
 <resources>
     <!-- Same value as the Compose `background`, so the window behind Compose never shows a
          seam: the launch frame, the status bar and the navigation bar all sit on this. -->
-    <color name="window_bg">#16161B</color>
+    <color name="window_bg">#1E1813</color>
 </resources>
