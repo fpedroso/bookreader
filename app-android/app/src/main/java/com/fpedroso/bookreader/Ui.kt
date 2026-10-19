@@ -168,6 +168,12 @@ private val PARA_GAP = 20.dp
 private val HEAD_GAP_TOP = 40.dp
 private val HEAD_GAP_BOTTOM = 10.dp
 
+// Space between sentences inside one paragraph. Small on purpose: each sentence already starts
+// its own line, so this only has to be enough to read the units as separate rather than as one
+// dense block of lines. A larger gap turns the paragraph into a list, which was the thing the
+// line break alone was meant to avoid. One constant, so it is easy to tune.
+private val SENTENCE_GAP = 4.dp
+
 // ------------------------------------------------------------------- reader
 
 /**
@@ -250,11 +256,11 @@ fun ReaderScreen(
                 val shape = RoundedCornerShape(10.dp)
                 val sentences = row.sentences
                 if (sentences != null) {
-                    // One line per sentence, with NO border and NO tint between them: a tint
-                    // cannot tell two sentences sharing a line apart, and an inline background
-                    // breaks into stripes at every line wrap. The line break is the marker.
-                    // A sentence that wraps still flows normally - only its START is forced
-                    // onto a new line.
+                    // One line per sentence, a small gap between them, and NO border and NO
+                    // tint: a tint cannot tell two sentences sharing a line apart, and an
+                    // inline background breaks into stripes at every line wrap. The line break
+                    // plus a little air is the marker. A sentence that wraps still flows
+                    // normally - only its START is forced onto a new line.
                     //
                     // The cost is a ragged right edge and taller paragraphs, accepted
                     // deliberately: it reads as a block of units rather than a printed page,
@@ -269,7 +275,10 @@ fun ReaderScreen(
                                 lineHeight = 30.sp,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable(enabled = row.hash != null) { onSentenceTap(row, i) },
+                                    .clickable(enabled = row.hash != null) { onSentenceTap(row, i) }
+                                    // Padding AFTER clickable, so the gap is part of the
+                                    // sentence above rather than dead space between two targets.
+                                    .padding(bottom = SENTENCE_GAP),
                             )
                         }
                     }
