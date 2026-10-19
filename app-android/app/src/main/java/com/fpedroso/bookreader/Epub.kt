@@ -113,14 +113,9 @@ object EpubParser {
                     depth++
                     val name = parser.name.lowercase()
                     if (skipDepth < 0 && name in SKIP_TAGS) skipDepth = depth
-                    // Project Gutenberg wraps its licence boilerplate in #pg-header and
-                    // #pg-footer. It is not part of the book, and rendering it means the
-                    // reader opens on a page of English legalese instead of the text.
-                    val id = parser.getAttributeValue(null, "id")
-                    if (skipDepth < 0 && id != null && id in SKIP_IDS) skipDepth = depth
                     // A <br> is a real line break *inside* one block: Struwwelpeter keeps a
                     // whole stanza in a single <p> with <br/> between the lines, so 52 of
-                    // its 98 paragraphs are verse that would otherwise flatten into prose.
+                    // its paragraphs are verse that would otherwise flatten into prose.
                     if (skipDepth < 0 && name == "br") sb?.append(BR)
                     if (skipDepth < 0 && name in BLOCK_TAGS) {
                         // Innermost block wins: a nested block abandons the outer one.
@@ -208,7 +203,6 @@ object EpubParser {
     private const val BR = "\u241E"
     private val BREAK_PAD = Regex(" *\\n *")
     private val BREAK_RUN = Regex("\\n{2,}")
-    private val SKIP_IDS = setOf("pg-header", "pg-footer", "pg-header-wrapper")
     /** NBSP is whitespace for our purposes but not for [Char.isWhitespace]. */
     private val WS = Regex("[ \\t\\r\\n\\f\\u000B\\u00A0]+")
 }

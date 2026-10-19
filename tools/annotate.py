@@ -98,10 +98,6 @@ def numbered_to_toned(py: str) -> str:
 BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div", "td"}
 SKIP_TAGS = {"script", "style", "head", "title", "rt", "rp"}
 
-# Project Gutenberg wraps its licence boilerplate here. It is not the book, and leaving it
-# in means the reader opens on a page of English legalese instead of the text.
-SKIP_IDS = {"pg-header", "pg-footer", "pg-header-wrapper"}
-
 # Sentinel for a real line break, swapped for "\n" only after whitespace is collapsed.
 # It must be non-whitespace so the collapsing pass cannot eat it, and it must be gone from
 # the final text because the block hash strips whitespace - which is exactly what keeps
@@ -134,17 +130,8 @@ def strip_tags(el) -> str:
 
 def blocks_from_xhtml(data: bytes) -> list[str]:
     root = ET.fromstring(data)
-    # Skip the whole pg-header/pg-footer subtree, not just the element carrying the id.
-    skip = set()
-    for el in root.iter():
-        if isinstance(el.tag, str) and el.get("id") in SKIP_IDS:
-            for d in el.iter():
-                skip.add(id(d))
-
     out = []
     for el in root.iter():
-        if id(el) in skip:
-            continue
         tag = el.tag.split("}")[-1].lower() if isinstance(el.tag, str) else ""
         if tag in BLOCK_TAGS:
             # Skip containers that hold other block elements - the leaf wins.
