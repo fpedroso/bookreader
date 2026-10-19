@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
@@ -45,26 +46,25 @@ fun LibraryScreen(
     onDelete: (BookMeta) -> Unit,
 ) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Book Reader") }) },
+        // The version rides on the title. It only exists to identify the installed build, so it
+        // needs no line of its own, and there is nothing to explain below the import button -
+        // "Import EPUB" says what it does.
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Book Reader v${BuildConfig.VERSION_CODE}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+            )
+        },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             TextButton(onClick = onImport, modifier = Modifier.padding(horizontal = 8.dp)) {
                 Text("+  Import EPUB")
             }
-            Text(
-                "Pick an EPUB to add it to your library. Tap a sentence while reading " +
-                    "to see it translated into English, on device.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            // Which build is on this device. The commit count, nothing else: one number that
-            // changes on every commit and always identifies the installed build.
-            Text(
-                "v${BuildConfig.VERSION_CODE}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
             HorizontalDivider()
             if (books.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -73,28 +73,47 @@ fun LibraryScreen(
             } else {
                 LazyColumn {
                     items(books, key = { it.id }) { b ->
-                        Column(
-                            Modifier
+                        // One line per book: title, language, remove. The title takes the slack
+                        // and ellipsises, so a long title cannot push the ✕ off the row.
+                        Row(
+                            modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onOpen(b) }
-                                .padding(16.dp),
+                                .padding(start = 16.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(b.title, fontWeight = FontWeight.Medium)
                             Text(
-                                b.lang.ifBlank { "unknown language" },
-                                style = MaterialTheme.typography.bodySmall,
+                                b.title,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
                             )
+                            flagFor(b.lang)?.let {
+                                Text(it, modifier = Modifier.padding(horizontal = 10.dp))
+                            }
+                            TextButton(onClick = { onDelete(b) }) { Text("✕") }
                         }
-                        TextButton(
-                            onClick = { onDelete(b) },
-                            modifier = Modifier.padding(start = 8.dp),
-                        ) { Text("Remove") }
                         HorizontalDivider()
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * "de" becomes the German flag.
+ *
+ * Derived from the code rather than read from a table: each ASCII letter maps to its regional
+ * indicator symbol, so any two-letter code works - including one for a language this app has no
+ * other handling for. Null when the language is unknown, so the row shows no symbol at all
+ * rather than a plausible wrong one.
+ */
+private fun flagFor(lang: String): String? {
+    val code = lang.trim().take(2).lowercase()
+    if (code.length != 2 || code.any { it !in 'a'..'z' }) return null
+    return code.map { String(Character.toChars(it - 'a' + 0x1F1E6)) }.joinToString("")
 }
 
 // Paragraph rhythm. Space *between* blocks rather than a first-line indent: the publisher
