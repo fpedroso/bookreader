@@ -1,0 +1,15 @@
+# Normalise to LF in the repository. Without this, a Windows checkout turns
+# gradlew / build.sh into CRLF and they fail with "bad interpreter".
+* text=auto eol=lf
+
+# Windows-only launchers genuinely need CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary - never diff or convert.
+*.jar binary
+*.png binary
+*.jpg binary
+*.apk binary
+*.db binary
+*.aar binary

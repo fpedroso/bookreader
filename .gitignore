@@ -1,0 +1,34 @@
+# ---- Android build output ----
+app-android/.gradle/
+app-android/build/
+app-android/app/build/
+app-android/local.properties
+app-android/.kotlin/
+*.apk
+*.aab
+
+# ---- Generated data (rebuild with tools/build_cedict.py — see README) ----
+# CC-CEDICT is CC-BY-SA 4.0; it is deliberately not vendored into this repo.
+app-android/app/src/main/assets/cedict.db
+tools/cedict.txt
+tools/cedict.gz
+
+# ---- Local pipeline artifacts ----
+# EPUBs and generated pinyin sidecars are large and mostly third-party content.
+content/
+out/
+tools/pyenv/
+tools/*.aar
+tools/*-src/
+tools/*.jar
+__pycache__/
+*.pyc
+
+# ---- Pinned toolchain downloaded by build.sh ----
+build-tools/
+
+# ---- Editor / OS ----
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
