@@ -27,8 +27,9 @@ only the sentences you can't.
    `German → English`. If the sentence is already English it says so and never calls the
    model. No account, no cost, and the text never leaves the device — the ~30 MB model
    downloads once per language pair, and the dialog says so while that happens.
-6. **Cache.** Translations are stored per book, keyed `"<blockhash>#<index>"`, in
-   `translations.json` beside the book, so re-tapping and re-reading are free.
+6. **Cache.** Translations are stored per book in `translations.json` beside the book, keyed by
+   a hash of the source text itself — never by position, so a sentence cannot inherit another
+   sentence's translation when the splitter changes, and re-tapping is free.
 
 **Opening a book never blocks on any per-language preparation.** Any EPUB in any language
 imports and renders as plain text; German just adds sentence splitting and translation. ML
