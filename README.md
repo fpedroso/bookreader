@@ -63,14 +63,14 @@ adb install -r app-android/app/build/outputs/apk/debug/app-debug.apk
 Measured on real books, not assumed.
 
 **The splitter relies on structure alone.** `Sentences.kt` has no abbreviation list and no
-fragment merging. What still keeps `564. Auflage` and `H. Hoffmann` together is structural:
+fragment merging. What still keeps `564. Auflage` and `H. Müller` together is structural:
 the digit before the dot, the single-capital initial, the initial chain `H.P.`, the case of
-the following token, and the comma/colon rule. The cost is real and accepted — `Dr. Heinrich
-Hoffmann` and `Mrs. Dursley` split, because "Capital. Capital" is lexically identical to a
-real boundary (`Er ging. Dursley kam.`), and a bare `Pfui!` is now its own unit that ML Kit
-may translate badly without its referent. A hardcoded list was rejected in exchange for rules
-that need no maintenance, and a "short capitalised word before the dot" rule was rejected too:
-it also suppresses the split in `Er traf Hans. Dann ging er.`
+the following token, and the comma/colon rule. The cost is real and accepted — `Dr. Müller` and
+`Mrs. Smith` split, because "Capital. Capital" is lexically identical to a real boundary
+(`Er ging. Müller kam.`), and a bare `Pfui!` is now its own unit that ML Kit may translate badly
+without its referent. A hardcoded list was rejected in exchange for rules that need no
+maintenance, and a "short capitalised word before the dot" rule was rejected too: it also
+suppresses the split in `Er traf Hans. Dann ging er.`
 
 **Each sentence gets its own line, in a subtle band.** One composable per sentence, stacked, each
 behind a `surfaceContainer` tint with 6dp of padding inside it and 12dp between sentences (still
@@ -98,10 +98,10 @@ often not installed, and without `cmdline-tools` AGP cannot fetch it.
 ## Known gaps
 
 - The sentence splitter is German-focused; other Latin-script languages fall back to a plain
-  punctuation split. It is structure-only: no abbreviation list and no fragment merging, so
-  `Mrs. Dursley` splits and a bare `Pfui!` is its own unit.
-- Hyphenated German compounds (`Zappel-Philipp`, `Guck-in-die-Luft`) arrive as one token and
-  translate as one word.
+  punctuation split. It is structure-only: no abbreviation list and no fragment merging, so a
+  title before a capitalised surname (`Mrs. Smith`) splits, and a bare `Pfui!` is its own unit.
+- Hyphenated German compounds (`Baden-Württemberg`, `Nord-Süd`) arrive as one token and translate
+  as one word.
 - Translation is fixed German → English: no target-language setting and no per-book override.
 - No bookmarks, no highlights, no Anki export.
 - Only EPUB3 XHTML text is parsed — no fixed-layout, no PDF, no cover thumbnails.
