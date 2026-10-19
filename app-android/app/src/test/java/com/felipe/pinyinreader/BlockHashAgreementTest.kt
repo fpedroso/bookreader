@@ -1,6 +1,7 @@
 package com.felipe.pinyinreader
 
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
@@ -15,18 +16,43 @@ import java.io.File
  */
 class BlockHashAgreementTest {
 
-    private val fixtures = listOf(
-        // The primary test book: authored HSK1-level fixture.
-        File("C:/Users/Felipe/EpubReader/content/hsk1.epub") to
-            File("C:/Users/Felipe/EpubReader/content/hsk1.pinyin.json"),
-        // Adversarial case: Ming-dynasty vernacular, traditional characters,
-        // 367k tokens, and the source of pypinyin's traditional-script failures.
-        File("C:/Users/Felipe/EpubReader/content/23962.epub") to
-            File("C:/Users/Felipe/EpubReader/content/23962.pinyin.json"),
-    )
+    /**
+     * Fixtures are generated artefacts (tools/gen_hsk1.py + tools/annotate.py) and
+     * are not committed, so locate them rather than hardcoding one machine's path.
+     * Gradle's working directory for unit tests is the module dir, hence "../content".
+     * Override with -Dpinyinreader.content=<dir>.
+     */
+    private val contentDir: String? = listOfNotNull(
+        System.getProperty("pinyinreader.content"),
+        "../content",
+        "../../content",
+        "C:/Users/Felipe/EpubReader/content",
+    ).firstOrNull { File(it, "hsk1.epub").exists() }
+
+    /**
+     * name pairs that exist on disk. hsk1.epub is the authored HSK1 fixture;
+     * 23962.epub is an adversarial case (Ming-dynasty vernacular, traditional
+     * characters, 367k tokens) and is optional.
+     */
+    private fun availableFixtures(dir: String): List<Pair<File, File>> =
+        listOf(
+            "hsk1.epub" to "hsk1.pinyin.json",
+            "23962.epub" to "23962.pinyin.json",
+        ).map { File(dir, it.first) to File(dir, it.second) }
+            .filter { it.first.exists() && it.second.exists() }
 
     @Test
     fun kotlinBlocksResolveAgainstPythonSidecar() {
+        val dir = contentDir
+        assumeTrue(
+            "no fixture directory found - run tools/gen_hsk1.py then tools/annotate.py",
+            dir != null,
+        )
+        if (dir == null) return // assumeTrue already threw; keeps the compiler happy
+
+        val fixtures = availableFixtures(dir)
+        assumeTrue("no fixtures present in $dir", fixtures.isNotEmpty())
+
         for ((epub, sidecarFile) in fixtures) {
             assertTrue("fixtures missing: ${epub.path}", epub.exists())
             assertTrue("sidecar missing: ${sidecarFile.path}", sidecarFile.exists())
