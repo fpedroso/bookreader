@@ -8,10 +8,13 @@ app-android/.kotlin/
 *.aab
 
 # ---- Generated data (rebuild with tools/build_cedict.py — see README) ----
-# CC-CEDICT is CC-BY-SA 4.0; it is deliberately not vendored into this repo.
+# CC-CEDICT is CC-BY-SA 4.0 and the Kaikki/German extract is CC-BY-SA 4.0; neither
+# is vendored into this repo.
 app-android/app/src/main/assets/cedict.db
+app-android/app/src/main/assets/de.db
 tools/cedict.txt
 tools/cedict.gz
+tools/kaikki-de.jsonl.gz
 
 # ---- Local pipeline artifacts ----
 # EPUBs and generated pinyin sidecars are large and mostly third-party content.

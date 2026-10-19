@@ -23,8 +23,10 @@ data class Sidecar(
 /** One annotated token. [source] is "cedict", "cedict-chars" or "pypinyin". */
 data class Token(val word: String, val pinyin: String, val source: String) {
     val hasPinyin: Boolean get() = pinyin.isNotBlank()
-    /** CJK ideographs only - punctuation and Latin stay un-annotated. */
+    /** CJK ideographs only - punctuation and Latin have no reading row. */
     val isHan: Boolean get() = word.any { it.code in 0x4E00..0x9FFF || it.code in 0x3400..0x4DBF }
+    /** Tappable if it contains a letter of any script, so German words are too. */
+    val isWord: Boolean get() = word.any { it.isLetter() }
 }
 
 object Annotations {

@@ -50,6 +50,8 @@ fun App() {
     var sidecar by remember { mutableStateOf<Sidecar?>(null) }
     var loading by remember { mutableStateOf(false) }
     var showPinyin by remember { mutableStateOf(true) }
+    var lang by remember { mutableStateOf("zh") }
+    var dict by remember { mutableStateOf<Dictionary?>(null) }
     var tapped by remember { mutableStateOf<Token?>(null) }
     var lastIndex by remember { mutableStateOf(0) }
 
@@ -70,10 +72,20 @@ fun App() {
         val result = withContext(Dispatchers.IO) {
             val p = runCatching { EpubParser.parse(File(b.epubFile)) }.getOrNull()
             val s = b.sidecarFile?.let { runCatching { Annotations.load(it) }.getOrNull() }
-            p to s
+            // A sidecar only exists for Chinese, so its lang wins; otherwise trust the
+            // EPUB's dc:language, and fall back to how the book was imported.
+            val bookLang = s?.lang ?: p?.language ?: b.lang
+            val d: Dictionary =
+                if (bookLang.startsWith("de")) GermanDict(ctx) else ChineseDict(ctx)
+            // Opening the dictionary copies a big asset out of the APK on first use
+            // (de.db is >100 MB), which would ANR if it happened on the first tap.
+            runCatching { d.warmUp() }
+            Triple(p, s, bookLang to d)
         }
         parsed = result.first
         sidecar = result.second
+        lang = result.third.first
+        dict = result.third.second
         loading = false
     }
 
@@ -92,11 +104,12 @@ fun App() {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading…") }
     } else {
         val book = parsed!!
-        val rows = remember(book, sidecar) { buildRows(book, sidecar) }
+        val rows = remember(book, sidecar, lang) { buildRows(book, sidecar, lang) }
         ReaderScreen(
             title = current.title,
             rows = rows,
             showPinyin = showPinyin,
+            pinyinToggleVisible = lang.startsWith("zh"),
             initialIndex = current.lastBlock,
             onTogglePinyin = { showPinyin = it },
             onWordTap = { tapped = it },
@@ -110,26 +123,31 @@ fun App() {
         )
         tapped?.let { t ->
             WordDialog(
-                token = t,
-                entries = remember(t.word) { Cedict.lookup(ctx, t.word) },
+                headword = t.word,
+                results = remember(t.word, dict) { dict?.lookup(t.word).orEmpty() },
+                note = if (t.source == "pypinyin") {
+                    "⚠ reading from the pypinyin fallback — may miss the neutral tone"
+                } else {
+                    null
+                },
                 onDismiss = { tapped = null },
             )
         }
     }
 }
 
-private fun buildRows(book: EpubParser.Book, sidecar: Sidecar?): List<RowItem> {
+private fun buildRows(book: EpubParser.Book, sidecar: Sidecar?, lang: String): List<RowItem> {
     val out = ArrayList<RowItem>()
     for (ch in book.chapters) {
         ch.title?.takeIf { it.isNotBlank() }?.let { out.add(RowItem.ChapterHead(it)) }
         for (bl in ch.blocks) {
-            out.add(
-                RowItem.Para(
-                    text = bl.text,
-                    tokens = Annotations.tokens(sidecar, bl.text),
-                    heading = bl.heading,
-                )
-            )
+            // Chinese tokens come from the PC-generated sidecar (segmentation plus
+            // readings). German has no sidecar and needs none: the language is
+            // space-separated, so tokenising here is enough and the dictionary
+            // resolves whatever inflection the token happens to be.
+            val tokens = Annotations.tokens(sidecar, bl.text)
+                ?: if (lang.startsWith("de")) GermanTokenizer.tokenize(bl.text) else null
+            out.add(RowItem.Para(text = bl.text, tokens = tokens, heading = bl.heading))
         }
     }
     return out
@@ -200,7 +218,8 @@ private fun importPicked(context: Context, uris: List<Uri>): Int {
                 title = title,
                 epubFile = epubDest.absolutePath,
                 sidecarFile = sidecarDest?.absolutePath,
-                lang = "zh",
+                // A sidecar only ever accompanies a Chinese book.
+                lang = if (sidecarDest != null) "zh" else (parsedBook?.language ?: "zh"),
                 addedAt = System.currentTimeMillis(),
             ),
         )

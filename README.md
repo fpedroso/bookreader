@@ -3,8 +3,8 @@
 An Android EPUB reader for language learners: **pinyin above the characters**, toggleable,
 and **tap any word for its meaning** — no English translation sitting under every line.
 
-Built for reading Chinese (and, eventually, German) books at a level where you can
-mostly understand them, and looking up only what you don't.
+Built for reading Chinese and German books at a level where you can mostly understand
+them, and looking up only what you don't.
 
 ![Library screen](docs/library.png)
 
@@ -49,9 +49,12 @@ Requirements: JDK 17+ (Temurin 21 used here), Android SDK with **platform androi
 and **build-tools 35.0.1**, and an Android device or emulator.
 
 ```bash
-# 1. Build the dictionary asset first — it is not vendored into the repo.
+# 1. Build the dictionary assets first — they are not vendored into the repo.
 cd tools
-python build_cedict.py            # writes ../app-android/app/src/main/assets/cedict.db
+python build_cedict.py            # -> ../app-android/app/src/main/assets/cedict.db
+curl -sSL -o kaikki-de.jsonl.gz \
+  "https://kaikki.org/dictionary/German/kaikki.org-dictionary-German.jsonl.gz"
+python build_german.py kaikki-de.jsonl.gz ../app-android/app/src/main/assets/de.db
 
 # 2. Build the APK.
 cd ../app-android
@@ -112,6 +115,31 @@ in particular). Falling back to per-character readings took CC-CEDICT coverage f
 which source produced its reading, so a weak reading is visible in the UI rather than
 plausible.
 
+**German needs inflection resolution, and Wiktionary's paradigm tables lie.** German is
+space-separated, so no segmentation is needed — but *ging* has to resolve to *gehen*, so
+`de.db` carries 357k lemmas with English glosses plus 1.34M surface→lemma mappings. Two
+traps cost real debugging, and **both produced answers that looked like successes**:
+
+- **Articles, pronouns, determiners and numerals share cross-linking paradigm tables.**
+  Building surface→lemma from every inflection table mapped `er` ("he") to `du` ("you")
+  and `die` to `der`. Mappings are now built only for `noun`/`verb`/`adj`/`adv`/`name`.
+- **A name entry's head template renders *with* an article**, so `der` appeared among the
+  `forms` of an acronym entry — mapping the definite article to that acronym
+  (`der` → `CIA`, `das` → `FBI`). Function words are now blocked as mapping *sources*;
+  tapping one resolves through its own dictionary entry instead.
+
+Neither was visible in the coverage number: coverage was 95% *before and after* the `er`
+bug, because `er` resolved — just to the wrong word. They were only visible by printing
+the most frequent hits for a real book and reading them. `build_german.py` now prints a
+function-word sanity table so the second class cannot silently return.
+
+Measured on *Der Struwwelpeter*, with Project Gutenberg's English licence boilerplate
+excluded (it otherwise dominates the token counts): **91.9% of distinct tokens and 95.9%
+weighted by frequency**. The residue is proper nouns (`Struwwelpeter`, `Paulinchen`) and
+publisher names. `tools/probe_german_lookup.py` reproduces that measurement using the
+app's exact SQL, so the number is about the shipped lookup path rather than a
+convenient reimplementation.
+
 **Each word is its own box; no ruby-text library.** The rendering is one small `Column`
 per word — pinyin above, the word tappable below. Word-level tap targets come out exact
 with no coordinate arithmetic, and pinyin alignment is correct by construction.
@@ -138,6 +166,9 @@ is often not installed, and without `cmdline-tools` AGP cannot fetch it.
   Used for readings and definitions. It is **not** committed to this repo; `tools/build_cedict.py`
   builds the SQLite asset from the upstream release. Pinyin sidecars (§ above) are derived
   from CC-CEDICT readings and should be treated as carrying the same licence.
+- **[Kaikki / Wiktextract](https://kaikki.org/dictionary/German/)** — German dictionary,
+  **CC BY-SA 4.0**, extracted from the *English* Wiktionary so the glosses are English.
+  Also not committed; `tools/build_german.py` builds `de.db` from the upstream JSONL.
 - **[jieba](https://github.com/fxsjy/jieba)** — Chinese word segmentation (MIT).
 - **[pypinyin](https://github.com/mozillazg/python-pinyin)** — fallback readings only (MIT).
 - **[Project Gutenberg](https://www.gutenberg.org/)** — the German test books used during
@@ -145,10 +176,11 @@ is often not installed, and without `cmdline-tools` AGP cannot fetch it.
 
 ## Known gaps
 
-- **German tap-lookup does nothing.** CC-CEDICT is Chinese-only, so a German EPUB reads
-  but has no dictionary behind the tap. German needs its own asset — FreeDict (deu-eng)
-  is the small option, an English Wiktionary extract has much better coverage, which
-  matters because German inflects hard (*ging* must resolve to *gehen*).
+- **Hyphenated German compounds don't resolve.** `Guck-in-die-Luft` arrives as one token
+  (correct), but the whole compound isn't a dictionary headword, so tapping it yields
+  nothing. German is head-final, so trying the last segment (`Luft`) would fix most cases.
+- The German asset is large (113 MB on disk, ~40 MB compressed in the APK). Pruning the
+  inflection table is the obvious lever; see `build_german.py`'s size report.
 - Pinyin generation is a PC pass, not in-app.
 - No LLM gloss, no Anki export, no bookmarks; library metadata is a JSON manifest.
 - Only EPUB3 XHTML text is parsed — no fixed-layout, no PDF, no cover thumbnails.

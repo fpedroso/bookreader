@@ -119,6 +119,8 @@ fun ReaderScreen(
     title: String,
     rows: List<RowItem>,
     showPinyin: Boolean,
+    /** False for books with no readings (German), where the switch would do nothing. */
+    pinyinToggleVisible: Boolean,
     initialIndex: Int,
     onTogglePinyin: (Boolean) -> Unit,
     onWordTap: (Token) -> Unit,
@@ -140,11 +142,13 @@ fun ReaderScreen(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { TextButton(onClick = onBack) { Text("←") } },
                 actions = {
-                    Switch(
-                        checked = showPinyin,
-                        onCheckedChange = onTogglePinyin,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
+                    if (pinyinToggleVisible) {
+                        Switch(
+                            checked = showPinyin,
+                            onCheckedChange = onTogglePinyin,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                    }
                 },
             )
         },
@@ -189,18 +193,19 @@ fun ReaderScreen(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WordFlow(tokens: List<Token>, showPinyin: Boolean, onWordTap: (Token) -> Unit) {
+    // The reading row is reserved for EVERY token only when some token actually has a
+    // reading. FlowRow aligns items to the TOP, so mixed-height items misalign: with a
+    // reading row on the Han words alone, bare punctuation (one row) floated above the
+    // characters instead of sitting on their baseline. German has no readings at all,
+    // so the row is skipped entirely and every token stays one row tall.
+    val readingRow = showPinyin && tokens.any { it.hasPinyin }
     FlowRow(modifier = Modifier.fillMaxWidth()) {
         for (t in tokens) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                // FlowRow aligns items to the TOP, so every token must occupy the
-                // same number of text rows or they misalign: with a reading row on
-                // the Han words only, bare punctuation (one row) floated above the
-                // characters instead of sitting on their baseline. The reading slot
-                // is therefore reserved for ALL tokens while pinyin is on.
-                modifier = Modifier.padding(end = if (t.isHan) 3.dp else 0.dp, bottom = 3.dp),
+                modifier = Modifier.padding(end = if (t.isWord) 3.dp else 0.dp, bottom = 3.dp),
             ) {
-                if (showPinyin) {
+                if (readingRow) {
                     Text(
                         if (t.hasPinyin) t.pinyin else BLANK,
                         fontSize = 10.sp,
@@ -212,7 +217,8 @@ fun WordFlow(tokens: List<Token>, showPinyin: Boolean, onWordTap: (Token) -> Uni
                 Text(
                     t.word,
                     fontSize = if (t.isHan) 21.sp else 19.sp,
-                    modifier = if (t.isHan) Modifier.clickable { onWordTap(t) } else Modifier,
+                    // Tappable for any script, not just Han, so German works too.
+                    modifier = if (t.isWord) Modifier.clickable { onWordTap(t) } else Modifier,
                 )
             }
         }
@@ -222,43 +228,69 @@ fun WordFlow(tokens: List<Token>, showPinyin: Boolean, onWordTap: (Token) -> Uni
 // --------------------------------------------------------------- word popup
 
 @Composable
-fun WordDialog(token: Token, entries: List<Cedict.Entry>, onDismiss: () -> Unit) {
+fun WordDialog(
+    headword: String,
+    results: List<Lookup>,
+    note: String?,
+    onDismiss: () -> Unit,
+) {
+    val first = results.firstOrNull()
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
         title = {
             Column {
-                Text(token.word, fontSize = 30.sp)
-                if (token.hasPinyin) Text(token.pinyin, color = MaterialTheme.colorScheme.primary)
+                Text(headword, fontSize = 30.sp)
+                // Chinese: the reading of the tapped word.
+                first?.pinyin?.let {
+                    Text(it, color = MaterialTheme.colorScheme.primary)
+                }
+                // German: the tapped token was inflected. Showing the lemma is the
+                // whole point, otherwise "ging" looks like it means nothing.
+                first?.takeIf { it.wasInflected }?.lemma?.let { lemma ->
+                    val pos = first.pos?.takeIf { it.isNotBlank() }
+                    Text(
+                        "→ $lemma" + (if (pos != null) "  ·  $pos" else ""),
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                if (entries.isEmpty()) {
+                if (results.isEmpty()) {
                     Text(
-                        if (token.hasPinyin) "No dictionary entry." else "No annotation for this word.",
+                        "No dictionary entry for “$headword”.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                entries.forEachIndexed { i, e ->
+                results.forEachIndexed { i, r ->
                     if (i > 0) Spacer(Modifier.height(10.dp))
-                    if (entries.size > 1) {
-                        Text(e.pinyin, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                    }
                     Card {
-                        Text(
-                            e.definitions.joinToString("\n"),
-                            modifier = Modifier.padding(10.dp).fillMaxWidth(),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Column(Modifier.padding(10.dp).fillMaxWidth()) {
+                            // Label each block when the result is ambiguous.
+                            if (results.size > 1) {
+                                Text(
+                                    listOfNotNull(
+                                        r.lemma ?: r.headword,
+                                        r.pos?.takeIf { it.isNotBlank() },
+                                    ).joinToString("  ·  "),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                            }
+                            Text(
+                                r.glosses.joinToString("\n").ifBlank { "—" },
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
-                if (token.source == "pypinyin") {
+                note?.let {
                     Spacer(Modifier.height(10.dp))
-                    Text(
-                        "⚠ reading from pypinyin fallback — may miss the neutral tone",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text(it, style = MaterialTheme.typography.bodySmall)
                 }
             }
         },

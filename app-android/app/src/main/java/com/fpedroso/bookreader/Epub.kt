@@ -28,7 +28,12 @@ object EpubParser {
 
     data class Block(val text: String, val heading: Boolean)
     data class Chapter(val title: String?, val blocks: List<Block>)
-    data class Book(val title: String?, val chapters: List<Chapter>) {
+    data class Book(
+        val title: String?,
+        val chapters: List<Chapter>,
+        /** Normalised 2-letter code from dc:language, e.g. "de". Drives dictionary choice. */
+        val language: String?,
+    ) {
         val blockCount: Int get() = chapters.sumOf { it.blocks.size }
     }
 
@@ -40,6 +45,7 @@ object EpubParser {
         val base = opfPath.substringBeforeLast('/', "")
 
         var bookTitle: String? = null
+        var rawLang: String? = null
         val manifest = HashMap<String, String>()
         val spine = ArrayList<String>()
         val opf = zip.getInputStream(zip.getEntry(opfPath)).use { it.readBytes() }
@@ -50,11 +56,17 @@ object EpubParser {
                     // Respect linear="no" (cover, colophon) the way readers do.
                     if (attrs["linear"] != "no") attrs["idref"]?.let { spine.add(it) }
                 }
-                "title" -> if (depth <= 2 && bookTitle == null && !text.isNullOrBlank()) {
+                // dc:title / dc:language sit under package > metadata, i.e. depth 3.
+                "title" -> if (depth <= 4 && bookTitle == null && !text.isNullOrBlank()) {
                     bookTitle = text.trim()
+                }
+                "language" -> if (depth <= 4 && rawLang == null && !text.isNullOrBlank()) {
+                    rawLang = text.trim()
                 }
             }
         }
+        // "de-DE" / "ger" / "zh-Hans" -> "de" / "de" / "zh"
+        val language = rawLang?.take(2)?.lowercase()
 
         val chapters = ArrayList<Chapter>()
         for (idref in spine) {
@@ -67,7 +79,7 @@ object EpubParser {
             val (chapterTitle, blocks) = parseChapter(bytes)
             if (blocks.isNotEmpty()) chapters.add(Chapter(chapterTitle, blocks))
         }
-        Book(bookTitle, chapters)
+        Book(bookTitle, chapters, language)
     }
 
     /**

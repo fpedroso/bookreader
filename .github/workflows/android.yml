@@ -40,6 +40,18 @@ jobs:
           python tools/build_cedict.py
           test -f app-android/app/src/main/assets/cedict.db
 
+      # Same rationale as CC-CEDICT: a generated CC BY-SA asset that is not vendored.
+      # Without this step the artifact would build fine but ship with no German
+      # dictionary at all - a silent gap, since the build does not require the file.
+      - name: Build German dictionary asset
+        run: |
+          set -euo pipefail
+          curl -sSL -o tools/kaikki-de.jsonl.gz \
+            "https://kaikki.org/dictionary/German/kaikki.org-dictionary-German.jsonl.gz"
+          python tools/build_german.py tools/kaikki-de.jsonl.gz \
+            app-android/app/src/main/assets/de.db
+          test -f app-android/app/src/main/assets/de.db
+
       # Generate the fixtures the extractor-agreement test needs. They are not
       # committed either, so without this the test would silently skip.
       - name: Generate test fixtures
