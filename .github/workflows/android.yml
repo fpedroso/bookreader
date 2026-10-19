@@ -66,6 +66,11 @@ jobs:
           echo "--- installed ---"
           "$MGR" --list_installed 2>/dev/null | grep -E "android-35|35\.0\.1|build-tools" || true
 
+      # setup-gradle annotates "Gradle X is out of date" against the latest MAJOR, not
+      # the latest 8.x - it still fires on 8.14.6, the newest 8.x release. Clearing it
+      # means Gradle 9.x, which requires AGP 9.x, which requires compileSdk 37; the
+      # machine has android-35 only and no cmdline-tools. Tolerated deliberately: it is
+      # a "you could be newer" nudge, not a defect. See the SDK pin note above.
       - uses: gradle/actions/setup-gradle@v6
 
       # Proves the Python annotator and the Kotlin parser still agree: this is the
