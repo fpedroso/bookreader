@@ -2,7 +2,6 @@ package com.fpedroso.bookreader
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,16 +26,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -151,14 +145,15 @@ data class RowItem(
      */
     val hash: String? = null,
     /**
-     * Character ranges of the sentences in [text], for prose languages: each is the unit
-     * of translation and the rectangle the tap hit-test resolves against. The paragraph
-     * itself is rendered as ONE continuous [text] so the prose flows naturally; the
-     * ranges only exist to turn a tap position into a sentence.
+     * The sentence texts of [text], for prose languages. Each is rendered on its own line and
+     * is its own tap target, so the unit of translation is exact by construction - no offsets
+     * to resolve.
      *
-     * Null for headings and verse, which are translated as a whole paragraph instead.
+     * Null for headings and verse, which are translated as a whole paragraph: a heading is not
+     * translated a sentence at a time, and splitting a stanza would turn its line breaks into
+     * prose again.
      */
-    val sentences: List<IntRange>? = null,
+    val sentences: List<String>? = null,
     /**
      * The language THIS block is written in, resolved by the parser from the document's
      * own lang/xml:lang attributes with the book's dc:language as the fallback. Null only
@@ -213,37 +208,31 @@ fun ReaderScreen(
                 // blocks is what gives the page room to breathe.
                 Spacer(Modifier.height(if (row.heading) HEAD_GAP_TOP else PARA_GAP))
                 val shape = RoundedCornerShape(10.dp)
-                val ranges = row.sentences
-                if (ranges != null) {
-                    // One continuous paragraph, exactly the prose flow a non-sentence
-                    // row gets: sentence boundaries are NOT marked in any way. The
-                    // split only survives as character ranges, so the whole unit is a
-                    // single Text and the tap position is hit-tested against the
-                    // layout to find which sentence the finger landed on.
-                    var layout by remember(row.text) {
-                        mutableStateOf<TextLayoutResult?>(null)
+                val sentences = row.sentences
+                if (sentences != null) {
+                    // One line per sentence, with NO border and NO tint between them: a tint
+                    // cannot tell two sentences sharing a line apart, and an inline background
+                    // breaks into stripes at every line wrap. The line break is the marker.
+                    // A sentence that wraps still flows normally - only its START is forced
+                    // onto a new line.
+                    //
+                    // The cost is a ragged right edge and taller paragraphs, accepted
+                    // deliberately: it reads as a block of units rather than a printed page,
+                    // which is what makes sentence structures comparable at a glance. It also
+                    // makes the tap target exact - the composable IS the sentence, where
+                    // resolving a tap by nearest character offset was an approximation.
+                    Column(Modifier.fillMaxWidth()) {
+                        sentences.forEachIndexed { i, sentence ->
+                            Text(
+                                sentence,
+                                fontSize = 19.sp,
+                                lineHeight = 30.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = row.hash != null) { onSentenceTap(row, i) },
+                            )
+                        }
                     }
-                    Text(
-                        row.text,
-                        fontSize = 19.sp,
-                        lineHeight = 30.sp,
-                        onTextLayout = { layout = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pointerInput(row.hash, ranges) {
-                                if (row.hash == null) return@pointerInput
-                                detectTapGestures { pos ->
-                                    val l = layout ?: return@detectTapGestures
-                                    onSentenceTap(
-                                        row,
-                                        Sentences.indexAt(
-                                            ranges,
-                                            l.getOffsetForPosition(pos),
-                                        ),
-                                    )
-                                }
-                            },
-                    )
                 } else {
                     // The whole paragraph is the tap target (headings, verse):
                     // outlined while its translation modal is open, so you can see

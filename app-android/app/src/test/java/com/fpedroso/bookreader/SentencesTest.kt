@@ -1,6 +1,7 @@
 package com.fpedroso.bookreader
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -115,5 +116,29 @@ class SentencesTest {
     fun trailingFragmentIsKept() {
         // Text after the last terminator is still a unit a reader can ask about.
         assertEquals(listOf("Er ging.", "Und dann kam"), texts("Er ging. Und dann kam"))
+    }
+
+    @Test
+    fun proseBecomesOneUnitPerSentence() {
+        // sentenceUnits is what the reader renders as one line per sentence, so these ARE the
+        // tap targets: text, not offsets, because the composable is the sentence.
+        assertEquals(
+            listOf("Er ging nach Hause.", "Sie blieb hier."),
+            sentenceUnits("Er ging nach Hause. Sie blieb hier.", heading = false, lang = "de"),
+        )
+    }
+
+    @Test
+    fun headingsAndVerseKeepTheWholeParagraph() {
+        // A heading is not translated a sentence at a time, and verse must not be split: the
+        // splitter would turn its line breaks back into prose and undo the verse rendering.
+        assertNull(sentenceUnits("Ein Junge Überlebt", heading = true, lang = "de"))
+        assertNull(
+            sentenceUnits(
+                "Sieh einmal, hier steht er,\npfui, der Struwwelpeter!",
+                heading = false,
+                lang = "de",
+            )
+        )
     }
 }

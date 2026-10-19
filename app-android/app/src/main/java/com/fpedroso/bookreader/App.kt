@@ -251,13 +251,11 @@ fun App() {
         }
 
         val onSentenceTap: (RowItem, Int) -> Unit = { para, i ->
-            // The range is the source text: the reader renders row.text as one paragraph, so
-            // the substring is the sentence the finger landed on. Trimmed because a range
-            // starts at the space that follows the previous sentence.
-            val range = para.sentences?.getOrNull(i)?.takeIf { it.first < para.text.length }
+            // The composable the finger landed on IS the sentence, so there is nothing to
+            // resolve: index i names it directly.
             openTranslation(
                 key = para.hash?.let { "$it#$i" },
-                source = range?.let { para.text.substring(it.first, it.last + 1).trim() } ?: para.text,
+                source = para.sentences?.getOrNull(i) ?: para.text,
                 blockLang = para.lang,
             )
         }
@@ -288,21 +286,18 @@ fun App() {
 }
 
 /**
- * The sentence character ranges of a prose block, or null when the block keeps the paragraph
- * as its unit.
+ * The sentence units of a prose block, or null when the block keeps the paragraph as its unit.
  *
  * Null for headings, which are not translated a sentence at a time, and for any block containing
  * a newline - that is verse. `Sentences.split` normalises whitespace, so splitting a stanza would
  * turn its `<br>` line breaks back into prose and undo the verse rendering.
  *
- * The ranges index into the very [text] that is rendered, not into the splitter's normalised
- * copy. That holds because the extractor already collapses every whitespace run inside a block
- * to a single space, so for the newline-free blocks that reach here `normalise` is the identity
- * (pinned by SentenceHitTestTest).
+ * The sentences' own text is returned, not offsets: each one is rendered on its own line and is
+ * its own tap target, so the unit is exact by construction.
  */
-internal fun sentenceUnits(text: String, heading: Boolean, lang: String): List<IntRange>? {
+internal fun sentenceUnits(text: String, heading: Boolean, lang: String): List<String>? {
     if (heading || text.contains('\n')) return null
-    return Sentences.split(text, lang).map { it.start until it.end }.takeIf { it.isNotEmpty() }
+    return Sentences.split(text, lang).map { it.text }.takeIf { it.isNotEmpty() }
 }
 
 private fun buildRows(book: EpubParser.Book, lang: String): List<RowItem> {

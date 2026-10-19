@@ -33,30 +33,6 @@ object Sentences {
 
     private val TERMINATORS = setOf('.', '!', '?', '…')
 
-    /**
-     * The sentence a character [offset] belongs to, as an index into [ranges].
-     *
-     * The reader renders one paragraph as a single Text and turns a finger position into a
-     * character offset, so this is what recovers sentence-level translation from a tap on
-     * continuous prose. A tap on the whitespace between two sentences - or on the leading
-     * space of a sentence, which `split` keeps inside the range - resolves to the nearest
-     * sentence rather than failing: there is no position in the paragraph, including past
-     * its end, that has no answer.
-     */
-    fun indexAt(ranges: List<IntRange>, offset: Int): Int {
-        ranges.forEachIndexed { i, r -> if (offset in r) return i }
-        var best = 0
-        var bestDistance = Int.MAX_VALUE
-        ranges.forEachIndexed { i, r ->
-            val distance = if (offset < r.first) r.first - offset else offset - r.last
-            if (distance < bestDistance) {
-                bestDistance = distance
-                best = i
-            }
-        }
-        return best
-    }
-
     /** Collapse every run of whitespace, so verse line breaks become plain spaces. */
     private fun normalise(raw: String): String = raw.replace(Regex("\\s+"), " ").trim()
 
