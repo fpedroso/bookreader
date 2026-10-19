@@ -64,6 +64,31 @@ def lower(s: str) -> str:
     return s.replace("ß", "ss").lower()
 
 
+def dedupe_glosses(glosses):
+    """Drop repeated glosses, preserving order.
+
+    The source repeats the same sense across multiple entries for an inflected form,
+    which surfaced as tapping `lustige` listing "inflection of lustig:" three times.
+    Repeats are common for inflected adjectives rather than an edge case.
+
+    The comparison key ignores case and a trailing colon/period, because the same gloss
+    shows up as both "inflection of X:" and "inflection of X" and neither form is more
+    correct than the other.
+    """
+    seen = set()
+    out = []
+    for g in glosses:
+        g = g.strip()
+        if not g:
+            continue
+        k = g.casefold().rstrip(":.,;").strip()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(g)
+    return out
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(__doc__)
@@ -134,6 +159,7 @@ def main() -> int:
                 g = (s.get("glosses") or [])
                 if g:
                     glosses.append(g[0].strip())
+            glosses = dedupe_glosses(glosses)
             if not glosses and senses and senses[0].get("form_of"):
                 # A pure inflected-form entry: record the relationship (already done
                 # above) but it gets no entry row of its own.

@@ -5,6 +5,45 @@ import android.database.sqlite.SQLiteDatabase
 import java.io.File
 
 /**
+ * Grammar words that only ever appear in a *pointing* gloss ("plural of Haus",
+ * "first/third-person singular preterite of gehen"). If anything else appears before the
+ * " of ", the gloss is describing meaning ("a kind of bread") and counts as real.
+ */
+private val POINTER_TERMS = setOf(
+    "inflection", "form", "plural", "singular", "genitive", "dative", "accusative",
+    "nominative", "comparative", "superlative", "preterite", "past", "present",
+    "participle", "imperative", "subjunctive", "indicative", "contraction", "alternative",
+    "diminutive", "vocative", "strong", "weak", "mixed", "definite", "indefinite",
+    "first", "second", "third", "person", "and", "or",
+    // Gender and spelling qualifiers also appear in redirect phrases.
+    "masculine", "feminine", "neuter", "spelling", "misspelling", "obsolete", "archaic",
+)
+
+/**
+ * True when a gloss only redirects to another word rather than defining this one.
+ *
+ * `internal` rather than private so it is reachable from JVM unit tests: this is a pure
+ * string predicate with no Android or database dependency, and getting it wrong changes
+ * which sense leads the popup.
+ */
+internal fun isPointerGloss(gloss: String): Boolean {
+    val t = gloss.trim().trimEnd(':', '.', ',', ';')
+    // The data writes a redirect followed by the real meaning it points at, e.g.
+    // "nominative/accusative neuter singular of der: the". That carries a definition, so
+    // it must count as real - otherwise a word whose own entry is spelled this way gets
+    // demoted and the bare lemma wins the popup, which is the bug this predicate exists
+    // to prevent. Only a colon with *nothing* after it is a pure redirect.
+    val colon = t.lastIndexOf(':')
+    if (colon >= 0 && t.substring(colon + 1).trim().isNotEmpty()) return false
+    val of = t.lastIndexOf(" of ")
+    if (of <= 0) return false
+    val words = t.substring(0, of).lowercase()
+        .split(Regex("[/,\\s-]+"))
+        .filter { it.isNotEmpty() }
+    return words.isNotEmpty() && words.all { it in POINTER_TERMS }
+}
+
+/**
  * German -> English lookup backed by de.db, built by tools/build_german.py from the
  * Kaikki/Wiktextract German extract (which is itself extracted from the ENGLISH
  * Wiktionary, so the glosses are English). CC BY-SA 4.0.
@@ -57,12 +96,30 @@ class GermanDict(context: Context) : Dictionary {
         }.getOrElse { emptyList() }
     }
 
+    /**
+     * Results are ranked, not ordered by lookup step.
+     *
+     * Ordering by step put the form-table hit first, which reads wrong for function
+     * words: tapping `mein` led with `→ ich` (its form_of pointer) when the primary
+     * sense is the determiner "my". Three buckets fix that:
+     *
+     *   1. the token's own entry, with real meaning     `mein`   -> "my"
+     *   2. the lemma that a form resolves to            `Häuser` -> Haus -> "house"
+     *   3. the token's own entry, but only a pointer    `Häuser` -> "plural of Haus"
+     *
+     * Note that "own entry first" is *not* the rule either: `Häuser` and `ging` each have
+     * their own entry, but it is a bare pointer, so bucket 2 has to win for them. The
+     * pointer distinction is what separates the two cases, and it is why this cannot be
+     * a simple preference for the direct lemma.
+     */
     private fun query(word: String): List<Lookup> {
         val key = normalise(word)
-        val out = LinkedHashMap<String, Lookup>()
+        val viaForm = ArrayList<Lookup>()
+        val ownMeaning = ArrayList<Lookup>()
+        val ownPointer = ArrayList<Lookup>()
 
         // 1. the token as an inflected form of some lemma
-        val viaForm = ArrayList<Pair<String, String>>() // lemma, pos
+        val seenLemma = HashSet<String>()
         open().rawQuery(
             "SELECT e.lemma, e.pos, e.glosses FROM form f " +
                 "JOIN entry e ON e.id = f.lemma_id " +
@@ -75,14 +132,13 @@ class GermanDict(context: Context) : Dictionary {
             while (c.moveToNext()) {
                 val lemma = c.getString(0) ?: continue
                 val pos = c.getString(1) ?: ""
-                val glosses = splitGlosses(c.getString(2))
-                val lk = viaForm.firstOrNull { it.first == lemma }
-                if (lk == null) {
-                    viaForm.add(lemma to pos)
-                    out["f:$lemma"] = Lookup(
-                        headword = word, lemma = lemma, pos = pos, glosses = glosses,
+                if (!seenLemma.add(lemma)) continue
+                viaForm.add(
+                    Lookup(
+                        headword = word, lemma = lemma, pos = pos,
+                        glosses = splitGlosses(c.getString(2)),
                     )
-                }
+                )
             }
         }
 
@@ -95,16 +151,22 @@ class GermanDict(context: Context) : Dictionary {
         ).use { c ->
             while (c.moveToNext()) {
                 val lemma = c.getString(0) ?: continue
-                if (out.containsKey("f:$lemma")) continue
-                out["e:$lemma:${c.getString(1)}"] = Lookup(
+                if (lemma in seenLemma) continue
+                val glosses = splitGlosses(c.getString(2))
+                val hit = Lookup(
                     headword = word,
                     lemma = if (lemma.equals(word, true)) null else lemma,
                     pos = c.getString(1) ?: "",
-                    glosses = splitGlosses(c.getString(2)),
+                    glosses = glosses,
                 )
+                // A pure pointer is the least useful thing to lead with, but still worth
+                // showing - it is often the only thing on offer. A row with no glosses is
+                // no more informative, so `all` over an empty list demotes it too.
+                if (glosses.all(::isPointerGloss)) ownPointer.add(hit) else ownMeaning.add(hit)
             }
         }
-        return out.values.take(6)
+
+        return (ownMeaning + viaForm + ownPointer).take(6)
     }
 
     private fun splitGlosses(raw: String?): List<String> =

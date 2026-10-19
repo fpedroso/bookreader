@@ -92,30 +92,6 @@ dictionary is chosen by `dc:language`. Worth making explicit settings:
 - the LLM gloss (below) needs its own config: model, whether it's enabled at all, and
   where the key lives.
 
-## Dictionary result ordering
-
-For function words the popup headline can be misleading. Tapping German `mein` heads with
-`→ ich · pron`, because the token's `form_of` mapping is inserted before its own entry —
-so it reads as "mein means ich" when the primary sense is the determiner **"my"**. All
-three senses *are* listed correctly underneath; only the order is wrong.
-
-Results should be ranked rather than ordered by lookup step:
-
-1. the token's own entry with real glosses — `mein` → "my"
-2. form-resolved lemmas — `Häuser` → `Haus` → "house"
-3. entries whose gloss is *only* a pointer — `Häuser` → "plural of Haus"
-
-Careful: this must not regress `Häuser` or `ging`, where the form-resolved lemma is the
-useful answer and the token's own entry is a bare pointer. So "own entry first" is not the
-rule either — the pointer-gloss distinction is what makes it work.
-
-## Duplicated glosses in the German data
-
-`lustige` renders "inflection of lustig:" three times, because the Kaikki/Wiktextract
-source repeats the same gloss in multiple senses for that form. `build_german.py` should
-de-duplicate glosses per entry (case-insensitively, after trimming). Cheap fix, and it
-affects every inflected adjective, so it is more visible than it sounds.
-
 ## LLM gloss for sentences you're stuck on
 
 Not in the original list but the natural companion to tap-a-word, and it was in the
