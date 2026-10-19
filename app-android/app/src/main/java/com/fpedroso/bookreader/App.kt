@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -89,6 +90,21 @@ fun App() {
         loading = false
     }
 
+    /** Leave the book, persisting the reading position once. */
+    val closeBook: () -> Unit = {
+        openBook?.let { Store.setProgress(ctx, it.id, lastIndex) }
+        library = Store.load(ctx)
+        openBook = null
+        parsed = null
+        sidecar = null
+    }
+
+    // The system back gesture must behave like the in-app "←" rather than finishing the
+    // Activity. It also dismisses the word popup first, since that sits on top.
+    BackHandler(enabled = openBook != null || tapped != null) {
+        if (tapped != null) tapped = null else closeBook()
+    }
+
     val current = openBook
     if (current == null) {
         LibraryScreen(
@@ -114,12 +130,7 @@ fun App() {
             onTogglePinyin = { showPinyin = it },
             onWordTap = { tapped = it },
             onProgress = { lastIndex = it },
-            onBack = {
-                // Persist position once on exit, rather than on every scroll frame.
-                Store.setProgress(ctx, current.id, lastIndex)
-                library = Store.load(ctx)
-                openBook = null; parsed = null; sidecar = null
-            },
+            onBack = closeBook,
         )
         tapped?.let { t ->
             WordDialog(
@@ -145,9 +156,25 @@ private fun buildRows(book: EpubParser.Book, sidecar: Sidecar?, lang: String): L
             // readings). German has no sidecar and needs none: the language is
             // space-separated, so tokenising here is enough and the dictionary
             // resolves whatever inflection the token happens to be.
-            val tokens = Annotations.tokens(sidecar, bl.text)
-                ?: if (lang.startsWith("de")) GermanTokenizer.tokenize(bl.text) else null
-            out.add(RowItem.Para(text = bl.text, tokens = tokens, heading = bl.heading))
+            val sidecarTokens = Annotations.tokens(sidecar, bl.text)
+            when {
+                sidecarTokens != null ->
+                    out.add(RowItem.Para(bl.text, sidecarTokens, bl.heading))
+                lang.startsWith("de") -> {
+                    // Space-separated, so render as prose and resolve taps by offset.
+                    val spans = GermanTokenizer.tokenizeRanges(bl.text)
+                    out.add(
+                        RowItem.Para(
+                            text = bl.text,
+                            tokens = spans.map { it.first }.ifEmpty { null },
+                            heading = bl.heading,
+                            tokenRanges = spans.map { it.second }.ifEmpty { null },
+                        )
+                    )
+                }
+                else ->
+                    out.add(RowItem.Para(bl.text, null, bl.heading))
+            }
         }
     }
     return out

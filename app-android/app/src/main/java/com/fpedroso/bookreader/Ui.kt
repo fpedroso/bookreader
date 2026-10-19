@@ -2,6 +2,7 @@ package com.fpedroso.bookreader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,7 +114,17 @@ private const val BLANK = "\u00A0"
 
 sealed interface RowItem {
     data class ChapterHead(val title: String) : RowItem
-    data class Para(val text: String, val tokens: List<Token>?, val heading: Boolean) : RowItem
+    data class Para(
+        val text: String,
+        val tokens: List<Token>?,
+        val heading: Boolean,
+        /**
+         * Set only for space-separated languages (German), where the paragraph renders as
+         * continuous prose and taps are resolved by text offset. Null for Chinese, which
+         * uses the per-word box flow so readings can sit above the characters.
+         */
+        val tokenRanges: List<IntRange>? = null,
+    ) : RowItem
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -166,10 +180,16 @@ fun ReaderScreen(
                     )
                     is RowItem.Para -> {
                         Spacer(Modifier.height(if (row.heading) 10.dp else 6.dp))
-                        if (row.tokens != null) {
-                            WordFlow(row.tokens, showPinyin, onWordTap)
-                        } else {
-                            Text(row.text, fontSize = 19.sp, lineHeight = 28.sp)
+                        val tokens = row.tokens
+                        when {
+                            tokens == null ->
+                                // No annotation and no tokeniser (e.g. a Chinese book whose
+                                // sidecar is missing): readable, just not tappable.
+                                Text(row.text, fontSize = 19.sp, lineHeight = 28.sp)
+                            row.tokenRanges != null ->
+                                ProseText(row.text, tokens, row.tokenRanges, onWordTap)
+                            else ->
+                                WordFlow(tokens, showPinyin, onWordTap)
                         }
                         Spacer(Modifier.height(4.dp))
                     }
@@ -178,6 +198,47 @@ fun ReaderScreen(
             item { Spacer(Modifier.height(48.dp)) }
         }
     }
+}
+
+/**
+ * A paragraph of a space-separated language, rendered as continuous prose.
+ *
+ * The text is drawn exactly as authored - real spaces, punctuation in the right place -
+ * and a tap is resolved to whichever token covers the tapped character offset. The
+ * alternative (one box per word, as Chinese uses) has no way to keep inter-word
+ * whitespace, which produced "Title:Der" and "3—6Jahren".
+ *
+ * `Text`'s `onTextLayout` gives us the layout to hit-test against; the ruby-text library
+ * that would have blocked this was dropped for unrelated reasons, so this works.
+ */
+@Composable
+fun ProseText(
+    text: String,
+    tokens: List<Token>,
+    ranges: List<IntRange>,
+    onWordTap: (Token) -> Unit,
+    fontSize: TextUnit = 19.sp,
+) {
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    Text(
+        text = text,
+        fontSize = fontSize,
+        lineHeight = fontSize * 1.5f,
+        onTextLayout = { layout = it },
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(tokens, ranges) {
+                detectTapGestures { pos ->
+                    val lr = layout ?: return@detectTapGestures
+                    val offset = lr.getOffsetForPosition(pos)
+                    val hit = tokens.indices.firstOrNull { i ->
+                        val r = ranges[i]
+                        tokens[i].isWord && offset >= r.first && offset <= r.last
+                    }
+                    if (hit != null) onWordTap(tokens[hit])
+                }
+            },
+    )
 }
 
 /**

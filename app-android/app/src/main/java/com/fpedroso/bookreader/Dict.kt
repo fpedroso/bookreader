@@ -71,8 +71,18 @@ object GermanTokenizer {
         "[\\p{L}\\p{M}]+(?:['’\\-][\\p{L}\\p{M}]+)*|\\d+|[^\\p{L}\\p{M}\\d\\s]+"
     )
 
-    fun tokenize(text: String): List<Token> =
+    fun tokenize(text: String): List<Token> = tokenizeRanges(text).map { it.first }
+
+    /**
+     * Tokens paired with their offsets in the ORIGINAL text.
+     *
+     * German is space-separated, so the reader renders it as continuous prose with the
+     * real spacing intact and resolves a tap through text-offset hit testing. Tokenising
+     * into separate boxes loses the whitespace and makes punctuation hug the next word
+     * ("Title:Der", "3—6Jahren").
+     */
+    fun tokenizeRanges(text: String): List<Pair<Token, IntRange>> =
         TOKEN.findAll(text).map { m ->
-            Token(word = m.value, pinyin = "", source = "de")
+            Token(word = m.value, pinyin = "", source = "de") to m.range
         }.toList()
 }
