@@ -12,7 +12,9 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest: the label migrates to Ubuntu 26 on
+    # 2026-10-19, and a silent base-image change should not be what breaks a build.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v7
