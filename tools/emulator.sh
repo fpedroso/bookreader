@@ -11,6 +11,9 @@
 # which is gitignored; tools/emulator.env.example documents every key. Nothing here names a
 # particular home directory, so a fresh clone runs on sane defaults.
 #
+# Every adb command below runs through adb_emu(), which names the emulator explicitly. See the
+# comment on emu_serial() for why that is not optional.
+#
 # Usage:
 #   tools/emulator.sh up            # install cmdline-tools if needed, create AVD, boot
 #   tools/emulator.sh up --window   # same, but with a visible window you can interact with
@@ -102,6 +105,7 @@ Local Android emulator for testing Book Reader without a physical device.
   tools/emulator.sh status
 
 Configuration: copy tools/emulator.env.example to tools/emulator.env (gitignored).
+Set EMULATOR_SERIAL (or ADB_SERIAL) to pin the emulator if more than one is attached.
 USAGE
 }
 
@@ -153,18 +157,76 @@ ensure_avd() {
   log "created"
 }
 
+# The serial of the emulator, resolved once and reused by adb_emu() below.
+#
+# Why every call has to name it: a phone can be attached over wireless debugging at the same time,
+# and a stale link still counts because the phone shows up as `offline` and adb refuses to choose
+# between them anyway. A bare `adb install` then answers "more than one device/emulator". The damage
+# is that `install` has already printed "installing 75M APK" by the time it fails, so the run looks
+# like it worked while the emulator keeps its OLD build - you test stale code and believe the result.
+#
+# EMULATOR_SERIAL/ADB_SERIAL pin the choice for one run. Otherwise there must be exactly one
+# `emulator-*` attached: picking one of several would silently test the wrong device, so refuse
+# rather than guess. Note this deliberately calls "$ADB" and not adb_emu - resolving the serial
+# cannot itself require the serial, or it would recurse.
+emu_serial() {
+  if [ -n "${__EMU_SERIAL:-}" ]; then
+    printf '%s' "$__EMU_SERIAL"
+    return 0
+  fi
+  if [ -n "${ADB_SERIAL:-}${EMULATOR_SERIAL:-}" ]; then
+    __EMU_SERIAL="${ADB_SERIAL:-${EMULATOR_SERIAL}}"
+    printf '%s' "$__EMU_SERIAL"
+    return 0
+  fi
+  local found n
+  found="$("$ADB" devices | awk '$1 ~ /^emulator-/ {print $1}')"
+  n="$(printf '%s\n' "$found" | grep -c . || true)"
+  if [ "$n" = "0" ]; then
+    echo "no emulator attached - run tools/emulator.sh up first" >&2
+    return 1
+  fi
+  if [ "$n" != "1" ]; then
+    echo "more than one emulator attached ($(printf '%s' "$found" | tr '\n' ' ')) - set EMULATOR_SERIAL to pick one" >&2
+    return 1
+  fi
+  __EMU_SERIAL="$found"
+  printf '%s' "$__EMU_SERIAL"
+}
+
+# Every device-specific adb call goes through here. To adb, the phone on the wireless link is a
+# perfectly real second target even when this script wants nothing to do with it.
+#
+# A resolution failure aborts instead of running adb with an empty -s, so the "no emulator" /
+# "more than one emulator" message is the last thing the user sees rather than the first of two.
+adb_emu() {
+  local serial
+  serial="$(emu_serial)" || exit 1
+  "$ADB" -s "$serial" "$@"
+}
+
+# Asks about the emulator specifically, not about "a device": the phone that broke this script is
+# attached too, and its presence must never be mistaken for the emulator being up. Listing devices
+# is the one call that cannot go through adb_emu, because it is how the serial gets discovered.
 running() {
   "$ADB" devices 2>/dev/null | grep -q "^emulator-"
 }
 
 wait_boot() {
-  log "waiting for boot"
-  "$ADB" wait-for-device
   local i state
+  # emu_serial refuses to name an emulator that has not registered with adb yet, and one launched a
+  # second ago has not, so wait for its row to exist before asking for its serial.
+  for i in $(seq 1 30); do
+    running && break
+    sleep 2
+  done
+  running || { echo "emulator never registered with adb" >&2; exit 1; }
+  log "waiting for boot ($(emu_serial))"
+  adb_emu wait-for-device
   for i in $(seq 1 40); do
-    state=$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n')
+    state=$(adb_emu shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n')
     if [ "$state" = "1" ]; then
-      log "booted: $("$ADB" devices | grep emulator | head -1 | awk '{print $1}')"
+      log "booted: $(emu_serial)"
       return 0
     fi
     sleep 10
@@ -201,7 +263,7 @@ cmd_install() {
   local apk="$REPO_ROOT/app-android/app/build/outputs/apk/debug/app-debug.apk"
   [ -f "$apk" ] || { echo "build first: ./build.sh assembleDebug" >&2; exit 1; }
   log "installing $(du -h "$apk" | cut -f1) APK"
-  "$ADB" install -r "$(cygpath -w "$apk")" | tail -1
+  adb_emu install -r "$(cygpath -w "$apk")" | tail -1
 
   # One book per EPUB in content/. The directory is gitignored and the fixtures are put there by
   # hand, so a fresh clone simply has none.
@@ -218,27 +280,27 @@ cmd_install() {
   # The id has to be a usable directory name, so it is the filename reduced to alphanumerics; the app
   # mints hash-based ids on import and can never collide with this. Titles are filenames because
   # reading real titles out of the EPUB is the app's job, not this script's.
-  "$ADB" shell mkdir -p /data/local/tmp/br
+  adb_emu shell mkdir -p /data/local/tmp/br
   local ids=() titles=()
   for f in "${files[@]}"; do
     local name="${f##*/}"
     local id
     id="$(printf '%s' "${name%.epub}" | tr -cd 'A-Za-z0-9' | cut -c1-24)"
     [ -n "$id" ] || id="book"
-    "$ADB" push "$(cygpath -w "$f")" "/data/local/tmp/br/$id.epub" >/dev/null
+    adb_emu push "$(cygpath -w "$f")" "/data/local/tmp/br/$id.epub" >/dev/null
     ids+=("$id")
     titles+=("$name")
   done
   log "pushed ${#ids[@]} EPUB(s)"
 
   # Launch once so the app's data dir exists before run-as writes into it.
-  "$ADB" shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1 || true
+  adb_emu shell am start -n "$PKG/.MainActivity" >/dev/null 2>&1 || true
   sleep 6
 
   # The manifest needs book.epub's absolute path, and run-as already starts in the app's data dir,
   # so ask the device for that instead of hardcoding /data/user/0.
   local files_dir
-  files_dir="$("$ADB" shell run-as "$PKG" pwd 2>/dev/null | tr -d '\r' || true)"
+  files_dir="$(adb_emu shell run-as "$PKG" pwd 2>/dev/null | tr -d '\r' || true)"
   [ -n "$files_dir" ] || files_dir="/data/data/$PKG"
 
   # The app reads its library from files/library.json rather than scanning the directory, and the SAF
@@ -250,8 +312,8 @@ cmd_install() {
   # The device calls stay out of the block that writes library.json: that block's stdout IS the
   # manifest, so anything the device happened to print would land inside the file.
   for i in "${!ids[@]}"; do
-    "$ADB" shell run-as "$PKG" mkdir -p "files/books/${ids[$i]}" >/dev/null
-    "$ADB" shell run-as "$PKG" cp "/data/local/tmp/br/${ids[$i]}.epub" \
+    adb_emu shell run-as "$PKG" mkdir -p "files/books/${ids[$i]}" >/dev/null
+    adb_emu shell run-as "$PKG" cp "/data/local/tmp/br/${ids[$i]}.epub" \
       "files/books/${ids[$i]}/book.epub" >/dev/null
   done
 
@@ -270,40 +332,43 @@ cmd_install() {
     printf '  ]\n}\n'
   } > "$json"
 
-  if ! "$ADB" shell "run-as $PKG sh -c 'cat > files/library.json'" < "$json"; then
+  if ! adb_emu shell "run-as $PKG sh -c 'cat > files/library.json'" < "$json"; then
     echo "could not write files/library.json on the device" >&2
     exit 1
   fi
   local written
-  written="$("$ADB" shell "run-as $PKG grep -c '\"id\"' files/library.json" 2>/dev/null | tr -d '\r' || true)"
+  written="$(adb_emu shell "run-as $PKG grep -c '\"id\"' files/library.json" 2>/dev/null | tr -d '\r' || true)"
   [ "$written" = "${#ids[@]}" ] ||
     { echo "library.json holds $written entries, expected ${#ids[@]}" >&2; exit 1; }
   log "wrote library.json with ${#ids[@]} book(s)"
 
   # We wrote the manifest, not the app, so the live process is still holding the library it loaded
   # before that file existed. Stop it so the next launch re-reads it.
-  "$ADB" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+  adb_emu shell am force-stop "$PKG" >/dev/null 2>&1 || true
   log "fixtures injected"
 }
 
 cmd_shot() {
   local out="${1:-emulator.png}"
-  "$ADB" exec-out screencap -p > "$out"
+  adb_emu exec-out screencap -p > "$out"
   log "wrote $out ($(du -h "$out" | cut -f1))"
 }
 
 cmd_down() {
   running || { log "not running"; return; }
-  "$ADB" emu kill >/dev/null 2>&1 || true
+  adb_emu emu kill >/dev/null 2>&1 || true
   log "stopped"
 }
 
 cmd_status() {
+  # Shown untargeted on purpose: this list is how you spot the phone that would otherwise make every
+  # other command ambiguous.
   "$ADB" devices | sed 's/^/  /'
   if running; then
-    log "sdk=$("$ADB" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r') \
-abi=$("$ADB" shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')"
-    log "app installed: $("$ADB" shell pm list packages 2>/dev/null | grep -c "$PKG") match(es)"
+    log "emulator=$(emu_serial) \
+sdk=$(adb_emu shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r') \
+abi=$(adb_emu shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')"
+    log "app installed: $(adb_emu shell pm list packages 2>/dev/null | grep -c "$PKG") match(es)"
   fi
 }
 
@@ -311,7 +376,7 @@ case "${1:-}" in
   up)      shift; cmd_up "${1:-}" ;;
   install) shift; cmd_install ;;
   shot)    shift; cmd_shot "${1:-emulator.png}" ;;
-  shell)   shift; "$ADB" shell "$@" ;;
+  shell)   shift; adb_emu shell "$@" ;;
   down)    cmd_down ;;
   status)  cmd_status ;;
   *)       usage ;;
