@@ -1,4 +1,4 @@
-package com.felipe.pinyinreader
+package com.fpedroso.bookreader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,7 +55,7 @@ fun LibraryScreen(
     onDelete: (BookMeta) -> Unit,
 ) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Pinyin Reader") }) },
+        topBar = { TopAppBar(title = { Text("Book Reader") }) },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             TextButton(onClick = onImport, modifier = Modifier.padding(horizontal = 8.dp)) {

@@ -1,4 +1,4 @@
-package com.felipe.pinyinreader
+package com.fpedroso.bookreader
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase

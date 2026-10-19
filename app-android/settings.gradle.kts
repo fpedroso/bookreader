@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "PinyinReader"
+rootProject.name = "BookReader"
 include(":app")

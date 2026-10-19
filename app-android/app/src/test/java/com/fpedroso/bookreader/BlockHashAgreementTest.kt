@@ -1,4 +1,4 @@
-package com.felipe.pinyinreader
+package com.fpedroso.bookreader
 
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -20,10 +20,10 @@ class BlockHashAgreementTest {
      * Fixtures are generated artefacts (tools/gen_hsk1.py + tools/annotate.py) and
      * are not committed, so locate them rather than hardcoding one machine's path.
      * Gradle's working directory for unit tests is the module dir, hence "../content".
-     * Override with -Dpinyinreader.content=<dir>.
+     * Override with -Dbookreader.content=<dir>.
      */
     private val contentDir: String? = listOfNotNull(
-        System.getProperty("pinyinreader.content"),
+        System.getProperty("bookreader.content"),
         "../content",
         "../../content",
         "C:/Users/Felipe/EpubReader/content",

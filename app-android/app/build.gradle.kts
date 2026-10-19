@@ -6,14 +6,14 @@ plugins {
 }
 
 android {
-    namespace = "com.felipe.pinyinreader"
+    namespace = "com.fpedroso.bookreader"
     compileSdk = 35
     // Pinned: only 35.0.1 / 36.0.0 are installed and cmdline-tools is absent,
     // so AGP cannot auto-download its default 34.0.0 build-tools.
     buildToolsVersion = "35.0.1"
 
     defaultConfig {
-        applicationId = "com.felipe.pinyinreader"
+        applicationId = "com.fpedroso.bookreader"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

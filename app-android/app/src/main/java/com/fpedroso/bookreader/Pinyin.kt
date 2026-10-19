@@ -1,4 +1,4 @@
-package com.felipe.pinyinreader
+package com.fpedroso.bookreader
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

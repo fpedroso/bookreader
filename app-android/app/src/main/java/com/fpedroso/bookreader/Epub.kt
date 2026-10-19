@@ -1,4 +1,4 @@
-package com.felipe.pinyinreader
+package com.fpedroso.bookreader
 
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory

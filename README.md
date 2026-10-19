@@ -1,4 +1,4 @@
-# epubreader
+# bookreader
 
 An Android EPUB reader for language learners: **pinyin above the characters**, toggleable,
 and **tap any word for its meaning** — no English translation sitting under every line.
