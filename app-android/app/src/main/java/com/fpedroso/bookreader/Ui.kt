@@ -168,11 +168,11 @@ private val PARA_GAP = 20.dp
 private val HEAD_GAP_TOP = 40.dp
 private val HEAD_GAP_BOTTOM = 10.dp
 
-// Space between sentences inside one paragraph. Small on purpose: each sentence already starts
-// its own line, so this only has to be enough to read the units as separate rather than as one
-// dense block of lines. A larger gap turns the paragraph into a list, which was the thing the
-// line break alone was meant to avoid. One constant, so it is easy to tune.
-private val SENTENCE_GAP = 4.dp
+// Space between sentences inside one paragraph. Sized for a reader who wants to take one sentence
+// at a time: after living with 4dp he asked for more, because the gap is what makes him stop and
+// finish the sentence he is on before moving to the next. Still smaller than PARA_GAP (20dp) so a
+// paragraph boundary stays visibly bigger than a sentence one. One constant, easy to tune.
+private val SENTENCE_GAP = 12.dp
 
 // ------------------------------------------------------------------- reader
 
@@ -220,7 +220,8 @@ fun ReaderScreen(
     initialIndex: Int,
     /**
      * Cache key of the unit whose translation modal is open, outlined behind it. A paragraph
-     * key is its block hash; a sentence key is `"<hash>#<index>"`.
+     * key is the hash of its text; a sentence is outlined not by key but by the composable it
+     * is, so only a paragraph tap shows the outline.
      */
     selectedKey: String? = null,
     onParagraphTap: (RowItem) -> Unit,
@@ -353,11 +354,26 @@ fun TranslationDialog(
      * on the device.
      */
     downloading: Boolean = false,
+    /**
+     * Extend the open unit by one more sentence and translate the joined text. Non-null only
+     * when the unit is a sentence with a following sentence in the same paragraph, so a
+     * paragraph or heading tap - and the last sentence of a paragraph - shows nothing here.
+     */
+    onTranslateMore: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = {
+            // "Translate more" rides next to "Close": both act on the modal, both leave it open
+            // (extending does not dismiss - the reader reads the longer translation in place).
+            Row {
+                onTranslateMore?.let { more ->
+                    TextButton(onClick = more) { Text("Translate more") }
+                }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
         title = { Text("Translation", fontSize = 20.sp) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {

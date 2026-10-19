@@ -63,6 +63,13 @@ fun App() {
     var tapKey by remember { mutableStateOf<String?>(null) }
     var tapSource by remember { mutableStateOf("") }
     var tapLang by remember { mutableStateOf<String?>(null) }
+    // The open unit's sentence span, when the tap landed on a sentence: [tapRow].sentences is the
+    // paragraph's sentence list and [tapStart]/[tapCount] name the run currently translated.
+    // tapRow is null for a paragraph or heading tap - there is no following sentence to extend
+    // to, so the modal shows no "Translate more" there.
+    var tapRow by remember { mutableStateOf<RowItem?>(null) }
+    var tapStart by remember { mutableStateOf(0) }
+    var tapCount by remember { mutableStateOf(1) }
     var translation by remember { mutableStateOf<String?>(null) }
     var translating by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
@@ -172,7 +179,8 @@ fun App() {
         val rows = remember(book, lang) { buildRows(book, lang) }
 
         // Tap a unit -> its translation, cached by key so re-tapping is free. The unit is
-        // one sentence, keyed "<hash>#<index>", or a whole paragraph for headings and verse.
+        // one sentence (extendable by "Translate more"), or a whole paragraph for headings
+        // and verse.
         //
         // The source language is resolved per BLOCK, not per book:
         //   1. the block's own lang/xml:lang, or an ancestor's - resolved by the parser
@@ -252,8 +260,12 @@ fun App() {
 
         val onSentenceTap: (RowItem, Int) -> Unit = { para, i ->
             // The composable the finger landed on IS the sentence, so there is nothing to
-            // resolve: index i names it directly.
+            // resolve: index i names it directly. The span starts as that one sentence and can
+            // be grown by "Translate more".
             val source = para.sentences?.getOrNull(i) ?: para.text
+            tapRow = para
+            tapStart = i
+            tapCount = 1
             openTranslation(
                 key = translationKey(source),
                 source = source,
@@ -266,12 +278,19 @@ fun App() {
             rows = rows,
             initialIndex = current.lastBlock,
             selectedKey = tapKey,
-            onParagraphTap = { para -> openTranslation(translationKey(para.text), para.text, para.lang) },
+            onParagraphTap = { para ->
+                // No sentence list behind a paragraph or heading, so nothing to extend.
+                tapRow = null
+                openTranslation(translationKey(para.text), para.text, para.lang)
+            },
             onSentenceTap = onSentenceTap,
             onProgress = { lastIndex = it },
             onBack = closeBook,
         )
         tapKey?.let {
+            // The span one sentence longer, or null at the paragraph's end - the modal hides
+            // "Translate more" rather than offering an action that would do nothing.
+            val moreSpan = tapRow?.sentences?.let { nextSpan(it, UnitSpan(tapStart, tapCount)) }
             TranslationDialog(
                 source = tapSource,
                 translation = translation,
@@ -280,7 +299,27 @@ fun App() {
                 pair = languagePair(tapLang),
                 alreadyEnglish = alreadyEnglish,
                 downloading = downloading,
-                onDismiss = { tapKey = null },
+                onTranslateMore = moreSpan?.let { span ->
+                    {
+                        val sentences = tapRow?.sentences
+                        if (sentences != null) {
+                            // Translate the JOINED text as one unit, under its OWN key.
+                            // translationKey(joined) hashes different text than the fragment,
+                            // so it is a different cache key: openTranslation cannot serve the
+                            // fragment's translation here, and storing the joined result leaves
+                            // the fragment's entry untouched for a later tap. Re-pressing to
+                            // this same span hashes the same text, so it hits the cache.
+                            val joined = unitSource(sentences, span)
+                            tapStart = span.start
+                            tapCount = span.count
+                            openTranslation(translationKey(joined), joined, tapRow?.lang)
+                        }
+                    }
+                },
+                onDismiss = {
+                    tapKey = null
+                    tapRow = null
+                },
             )
         }
     }
@@ -308,8 +347,9 @@ private fun buildRows(book: EpubParser.Book, lang: String): List<RowItem> {
     // body already contains, which arrive here as heading blocks.
     for (ch in book.chapters) {
         for (bl in ch.blocks) {
-            // Every paragraph carries its block hash: it is the key for the sentence
-            // translation cache (`"<hash>#<index>"`) and the tap target for the modal.
+            // Every paragraph carries its block hash: it identifies the block and is the tap
+            // target for the modal. (Translation keys are the hash of the UNIT's own text,
+            // not this one - see translationKey.)
             out.add(
                 RowItem(
                     text = bl.text,
