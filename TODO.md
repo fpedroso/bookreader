@@ -6,10 +6,13 @@ committed to; it's a parking lot. See the *Design notes* and *Known gaps* sectio
 
 ## Pinyin generation in the app
 
+**Decided — this is how pinyin works.** Pinyin is generated inside the app rather than on
+the desktop, so importing a Chinese EPUB is enough to read it with readings: no sidecar to
+prepare first.
+
 Today pinyin is a **PC pass** (`tools/annotate.py`): jieba segments, CC-CEDICT supplies
 readings, and the result ships as a `.pinyin.json` sidecar keyed by paragraph hash.
-Generating it natively would remove the desktop step entirely and let a user import any
-Chinese EPUB and read it immediately.
+Generating it natively removes that desktop step.
 
 - Segmentation on-device: [`jieba-kmp`](https://klibs.io/project/ErolC/jieba-kmp)
   (`cn.erolc.jieba:jieba-kmp`) is a Kotlin Multiplatform port. Its own measurements put
@@ -20,6 +23,9 @@ Chinese EPUB and read it immediately.
 - Store the result in the same sidecar format so the reader path is unchanged, and keep
   the sidecar-keyed-by-hash design: it means a partially annotated book still renders
   correctly rather than showing wrong pinyin everywhere.
+- The `.pinyin.json` sidecar stays *supported* — books annotated on the PC keep working —
+  but stops being *required*: import has to succeed from the EPUB alone, and a book with
+  no sidecar must get readings generated on first open.
 - Sizing: 113 MB of Chinese novel produced a 12 MB sidecar measured earlier; worth
   regenerating lazily per chapter rather than for the whole book up front.
 
@@ -48,10 +54,17 @@ German:
   The honest answer for a beginner; there is no free A1 German EPUB.
 - Free A1 German essentially does not exist in EPUB form.
 
-Design questions to settle: do we ship a hardcoded curated list, or a remote JSON we can
-update without an app release? And do we link out, or download into the library?
-**Prefer a remote list** — the licensing situation per source will change and a shipped
-list would go stale.
+**Library model: import-only.** Decided — there is no folder to watch. Every book enters
+the library through an explicit import (the EPUB, plus its `.pinyin.json` sidecar when one
+exists), and Chinese readings are generated in-app rather than prepared on the desktop. So
+this store is a *discovery* surface: it points at properly-licensed books and the user
+imports the file they want. A watched-folder design was considered and dropped — it needed
+a "sources" abstraction over the library, `takePersistableUriPermission`, and a rescan on
+resume, to save taps that import already covers.
+
+Design question to settle: a hardcoded curated list, or a remote JSON we can update
+without an app release? **Prefer a remote list** — the licensing situation per source will
+change and a shipped list would go stale.
 
 ## Pagination
 
@@ -65,20 +78,6 @@ book is supposed to feel like, and was in the original brief.
   font size changing the page count is normal and fine. This is just viewport fitting.
 - Keep it behind an interface so scroll mode stays available; dyslexic/accessibility
   readers often prefer scroll.
-
-## Book folder / library sources
-
-Let the user nominate a folder the app reads books from, instead of importing one file at
-a time.
-
-- `ACTION_OPEN_DOCUMENT_TREE` + `DocumentFile`, and **take a persistable URI permission**
-  (`takePersistableUriPermission`) or access is lost on reboot — a classic trap.
-- Needs a rescan on app resume, since the folder can change behind the app's back.
-- Interacts with the store above: a folder + curated links + one-off imports is three
-  sources for one library, so the library model should probably become a list of *sources*
-  rather than a flat list of books.
-- Pinyin sidecars live next to the EPUB on the desktop, so a folder scan should pick up
-  `<book>.pinyin.json` automatically when present.
 
 ## Configurable pinyin and translation
 
