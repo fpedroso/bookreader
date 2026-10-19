@@ -46,14 +46,23 @@ jobs:
           python tools/gen_hsk1.py content/hsk1.epub
           python tools/annotate.py content/hsk1.epub tools/cedict.txt content/hsk1.pinyin.json
 
-      # Puts sdkmanager on PATH and accepts the SDK licences, so the explicit
-      # install below is reliable rather than depending on the runner image.
-      - uses: android-actions/setup-android@v3
-
-      # build.gradle.kts pins buildToolsVersion to 35.0.1, because AGP 8.6.1 would
-      # otherwise default to 34.0.0. Install exactly what the build asks for.
+      # Do NOT use android-actions/setup-android@v3: it runs `sdkmanager tools`, and
+      # the legacy 'tools' package was removed from the SDK repository, so the action
+      # fails with "Failed to find package 'tools'" before doing anything useful.
+      # Locate sdkmanager ourselves (it is not on PATH by default) and install exactly
+      # what build.gradle.kts asks for: it pins buildToolsVersion to 35.0.1 because
+      # AGP 8.6.1 would otherwise default to 34.0.0.
       - name: Install pinned Android SDK components
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
+        shell: bash
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          MGR=$(find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null | sort | tail -1)
+          echo "sdkmanager: $MGR"
+          test -n "$MGR"
+          yes | "$MGR" --licenses >/dev/null 2>&1 || true
+          "$MGR" --install "platforms;android-35" "build-tools;35.0.1"
+          echo "--- installed ---"
+          "$MGR" --list_installed 2>/dev/null | grep -E "android-35|35\.0\.1|build-tools" || true
 
       - uses: gradle/actions/setup-gradle@v4
 
