@@ -99,7 +99,9 @@ the way it does.
 **CC-CEDICT is the reading source; pypinyin is a last resort.** pypinyin never applies
 the neutral tone (轻声), so it is wrong on 16 of 24 common words — 爸爸 → `bà bà`
 instead of `bà ba`, and likewise 谢谢, 朋友, 时候, 喜欢, 认识, 东西. These are the first
-words a beginner meets, so the error lands exactly where it hurts. CC-CEDICT encodes
+words a beginner meets, so the error lands exactly where it hurts.
+(`tools/check_pypinyin_quality.py` reproduces that table, so the claim can be re-checked
+against a newer pypinyin release.) CC-CEDICT encodes
 the neutral tone explicitly (`ba4 ba5`; tone 5 = neutral) and is keyed on both scripts,
 which also fixes traditional-character readings pypinyin gets wrong (銀行 → `yín xíng`).
 
