@@ -110,6 +110,13 @@ Careful: this must not regress `Häuser` or `ging`, where the form-resolved lemm
 useful answer and the token's own entry is a bare pointer. So "own entry first" is not the
 rule either — the pointer-gloss distinction is what makes it work.
 
+## Duplicated glosses in the German data
+
+`lustige` renders "inflection of lustig:" three times, because the Kaikki/Wiktextract
+source repeats the same gloss in multiple senses for that form. `build_german.py` should
+de-duplicate glosses per entry (case-insensitively, after trimming). Cheap fix, and it
+affects every inflected adjective, so it is more visible than it sounds.
+
 ## LLM gloss for sentences you're stuck on
 
 Not in the original list but the natural companion to tap-a-word, and it was in the
