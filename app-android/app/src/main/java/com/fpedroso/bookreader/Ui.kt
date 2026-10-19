@@ -2,6 +2,7 @@ package com.fpedroso.bookreader
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,10 +27,16 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -119,8 +126,13 @@ private fun flagFor(lang: String): String? {
 // Paragraph rhythm. Space *between* blocks rather than a first-line indent: the publisher
 // CSS used `text-indent: 1.5em` with no paragraph margin, which is the dense print
 // convention and reads cramped on a phone.
+//
+// A heading gets a wider gap than a paragraph, plus a little space below, so the title is
+// set off on both sides. Size and weight alone separate it from the prose; nothing here is
+// boxed or tinted, because the reading view is deliberately frame-free.
 private val PARA_GAP = 20.dp
-private val HEAD_GAP_TOP = 28.dp
+private val HEAD_GAP_TOP = 40.dp
+private val HEAD_GAP_BOTTOM = 10.dp
 
 // ------------------------------------------------------------------- reader
 
@@ -136,12 +148,14 @@ sealed interface RowItem {
          */
         val hash: String? = null,
         /**
-         * Sentence units for prose languages, each rendered as its own softly bordered block
-         * and each the unit of translation - so the boundary is visible before the tap.
-         * Null for headings and verse, which are translated (and outlined) as a whole
-         * paragraph instead.
+         * Character ranges of the sentences in [text], for prose languages: each is the unit
+         * of translation and the rectangle the tap hit-test resolves against. The paragraph
+         * itself is rendered as ONE continuous [text] so the prose flows naturally; the
+         * ranges only exist to turn a tap position into a sentence.
+         *
+         * Null for headings and verse, which are translated as a whole paragraph instead.
          */
-        val sentences: List<String>? = null,
+        val sentences: List<IntRange>? = null,
     ) : RowItem
 }
 
@@ -184,8 +198,12 @@ fun ReaderScreen(
                 when (row) {
                     is RowItem.ChapterHead -> Text(
                         row.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
+                        // A chapter title is the only structure the reader gets besides the
+                        // prose rhythm, so it announces itself with size and weight. See the
+                        // heading branch below - the two must match.
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = HEAD_GAP_TOP, bottom = HEAD_GAP_BOTTOM),
                     )
                     is RowItem.Para -> {
                         // Generous space between paragraphs, deliberately. The publisher CSS
@@ -194,37 +212,37 @@ fun ReaderScreen(
                         // blocks is what gives the page room to breathe.
                         Spacer(Modifier.height(if (row.heading) HEAD_GAP_TOP else PARA_GAP))
                         val shape = RoundedCornerShape(10.dp)
-                        val sents = row.sentences
-                        if (sents != null) {
-                            // One soft-bordered block per sentence. The border IS the unit:
-                            // what will be translated is visible before the tap, and each
-                            // sentence owns its line flow so a wrapped line stays inside its
-                            // own box. "Soft" = outlineVariant, so a page of these reads as
-                            // texture rather than as twenty nested frames.
-                            Column(Modifier.fillMaxWidth()) {
-                                sents.forEachIndexed { i, s ->
-                                    val key = row.hash?.let { "$it#$i" }
-                                    val sel = key != null && key == selectedKey
-                                    Column(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 3.dp)
-                                            .clip(shape)
-                                            .border(
-                                                width = if (sel) 1.5.dp else 1.dp,
-                                                color = if (sel) MaterialTheme.colorScheme.primary
-                                                else MaterialTheme.colorScheme.outlineVariant,
-                                                shape = shape,
-                                            )
-                                            .clickable(enabled = row.hash != null) {
-                                                onSentenceTap(row, i)
-                                            }
-                                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                                    ) {
-                                        Text(s, fontSize = 19.sp, lineHeight = 28.sp)
-                                    }
-                                }
+                        val ranges = row.sentences
+                        if (ranges != null) {
+                            // One continuous paragraph, exactly the prose flow a non-sentence
+                            // row gets: sentence boundaries are NOT marked in any way. The
+                            // split only survives as character ranges, so the whole unit is a
+                            // single Text and the tap position is hit-tested against the
+                            // layout to find which sentence the finger landed on.
+                            var layout by remember(row.text) {
+                                mutableStateOf<TextLayoutResult?>(null)
                             }
+                            Text(
+                                row.text,
+                                fontSize = 19.sp,
+                                lineHeight = 30.sp,
+                                onTextLayout = { layout = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerInput(row.hash, ranges) {
+                                        if (row.hash == null) return@pointerInput
+                                        detectTapGestures { pos ->
+                                            val l = layout ?: return@detectTapGestures
+                                            onSentenceTap(
+                                                row,
+                                                Sentences.indexAt(
+                                                    ranges,
+                                                    l.getOffsetForPosition(pos),
+                                                ),
+                                            )
+                                        }
+                                    },
+                            )
                         } else {
                             // The whole paragraph is the tap target (headings, verse):
                             // outlined while its translation modal is open, so you can see
@@ -241,7 +259,21 @@ fun ReaderScreen(
                                     .clickable(enabled = row.hash != null) { onParagraphTap(row) }
                                     .padding(if (selected) 10.dp else 0.dp),
                             ) {
-                                Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
+                                if (row.heading) {
+                                    // A title has no box to mark it any more, so it is set
+                                    // apart by size and weight only - larger and heavier than
+                                    // the 19sp body, plus space below so the first paragraph
+                                    // does not crowd it. Left-aligned, onBackground colour:
+                                    // no tint, no border.
+                                    Text(
+                                        row.text,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(bottom = HEAD_GAP_BOTTOM),
+                                    )
+                                } else {
+                                    Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
+                                }
                             }
                         }
                     }
