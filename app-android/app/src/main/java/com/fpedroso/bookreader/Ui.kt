@@ -57,10 +57,10 @@ fun LibraryScreen(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            // Which build is on this device. Derived from the git commit count, so it
+            // Which build is on this device. The commit count, nothing else: one number that
             // changes on every commit and always identifies the installed build.
             Text(
-                "v${BuildConfig.VERSION_NAME}",
+                "v${BuildConfig.VERSION_CODE}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),

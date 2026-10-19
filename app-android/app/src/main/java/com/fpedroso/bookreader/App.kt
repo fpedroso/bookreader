@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            BookReaderTheme {
                 Surface(modifier = Modifier.fillMaxSize()) { App() }
             }
         }

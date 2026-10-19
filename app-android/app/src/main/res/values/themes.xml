@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.BookReader" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- A dark parent, not Light. Compose draws on top of this window, so a light parent shows
+         as a white flash at launch and behind the status and navigation bars. -->
+    <style name="Theme.BookReader" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_bg</item>
+        <item name="android:statusBarColor">@color/window_bg</item>
+        <item name="android:navigationBarColor">@color/window_bg</item>
+    </style>
 </resources>

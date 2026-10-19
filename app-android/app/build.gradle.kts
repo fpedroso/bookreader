@@ -25,7 +25,8 @@ android {
             commandLine("git", "rev-list", "--count", "HEAD")
         }.standardOutput.asText.map { it.trim().toIntOrNull() ?: 0 }.getOrElse(0)
         versionCode = commits.coerceAtLeast(1)
-        versionName = "0.0.$commits"
+        // One number everywhere: the same commit count, so "v26" on screen is versionCode 26.
+        versionName = "$commits"
     }
 
     buildTypes {
