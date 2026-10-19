@@ -106,23 +106,31 @@ object EpubParser {
         var chapterTitle: String? = null
         var depth = 0
         var skipDepth = -1            // >0 while inside script/style/head/title/rt/rp
-        var collectDepth = -1         // depth of the block currently emitting text
-        var sb: StringBuilder? = null
-        var headingNow = false
 
-        // Emit whatever the active collector has accumulated. Called when a nested block
-        // begins and when a block closes, which is what makes a container's own text a
-        // block in its own right instead of being discarded.
-        fun emit() {
-            val t = sb?.toString()
-                ?.replace(WS, " ")
-                ?.replace(BR, "\n")
-                ?.replace(BREAK_PAD, "\n")
-                ?.replace(BREAK_RUN, "\n")
-                ?.trim()
-            if (!t.isNullOrEmpty()) blocks.add(Block(t, headingNow))
-            sb = null
-            collectDepth = -1
+        // One frame per open container.
+        //
+        // A container's OWN text is a block in its own right, so this has to be a STACK
+        // rather than a single buffer: when a nested block starts, the parent's text so far
+        // is emitted and the parent frame stays open to keep collecting whatever follows the
+        // child. With a single buffer, `</h2>` tore down the body's collector and the prose
+        // after it was lost - which is why a real EPUB whose prose is bare text inside
+        // <body> still showed only its headings, even after the extractor was "fixed".
+        class Frame(val depth: Int, val heading: Boolean) {
+            val sb = StringBuilder()
+        }
+        val stack = ArrayList<Frame>()
+
+        /** Emit the top frame's text as a block and reset that frame's buffer. */
+        fun flushTop() {
+            val f = stack.lastOrNull() ?: return
+            val t = f.sb.toString()
+                .replace(WS, " ")
+                .replace(BR, "\n")
+                .replace(BREAK_PAD, "\n")
+                .replace(BREAK_RUN, "\n")
+                .trim()
+            if (t.isNotEmpty()) blocks.add(Block(t, f.heading))
+            f.sb.setLength(0)
         }
 
         var event = parser.eventType
@@ -135,25 +143,29 @@ object EpubParser {
                     // qualified name.
                     val name = parser.name.substringAfterLast(':').lowercase()
                     if (skipDepth < 0 && name in SKIP_TAGS) skipDepth = depth
-                    // A <br> is a real line break *inside* one block: Struwwelpeter keeps a
-                    // whole stanza in a single <p> with <br/> between the lines.
-                    if (skipDepth < 0 && name == "br") sb?.append(BR)
+                    // A <br> is a real line break *inside* one block: a verse stanza lives in
+                    // a single <p> with <br/> between its lines.
+                    if (skipDepth < 0 && name == "br") stack.lastOrNull()?.sb?.append(BR)
                     if (skipDepth < 0 && name in BLOCK_TAGS) {
-                        // A nested block flushes the outer container's own text first, so
+                        // Flush the parent's own text before the child takes over, so
                         // `<body> A <p></p> B </body>` yields "A" then "B".
-                        if (collectDepth > 0) emit()
-                        collectDepth = depth
-                        sb = StringBuilder()
-                        headingNow = name.length == 2 && name[0] == 'h' && name[1] in '1'..'6'
+                        flushTop()
+                        val heading = name.length == 2 && name[0] == 'h' && name[1] in '1'..'6'
+                        stack.add(Frame(depth, heading))
                     }
                 }
                 XmlPullParser.TEXT -> {
-                    if (collectDepth > 0 && skipDepth < 0) sb?.append(parser.text)
+                    if (skipDepth < 0) stack.lastOrNull()?.sb?.append(parser.text)
                 }
                 XmlPullParser.END_TAG -> {
                     val name = parser.name.substringAfterLast(':').lowercase()
                     if (skipDepth == depth) skipDepth = -1
-                    if (collectDepth == depth && name in BLOCK_TAGS) emit()
+                    // Only pop when the depth matches, so malformed markup cannot unbalance
+                    // the stack and mis-assign text to the wrong block.
+                    if (name in BLOCK_TAGS && stack.isNotEmpty() && stack.last().depth == depth) {
+                        flushTop()
+                        stack.removeAt(stack.size - 1)
+                    }
                     depth--
                 }
             }
@@ -171,6 +183,11 @@ object EpubParser {
         val parser = newParser()
         parser.setInput(bytes.inputStream(), null)
         var depth = 0
+        // TEXT events must carry the name of the element they belong to. Reporting an empty
+        // name meant `<dc:language>de</dc:language>` arrived as ("", ..., "de"), so a
+        // `when (name) { "language" -> }` handler could never fire and no element's text was
+        // ever readable - which is why dc:title and dc:language were both always null.
+        var current = ""
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
@@ -180,9 +197,10 @@ object EpubParser {
                     for (i in 0 until parser.attributeCount) {
                         attrs[parser.getAttributeName(i).lowercase()] = parser.getAttributeValue(i)
                     }
-                    onTag(parser.name.substringAfterLast(':').lowercase(), attrs, depth, null)
+                    current = parser.name.substringAfterLast(':').lowercase()
+                    onTag(current, attrs, depth, null)
                 }
-                XmlPullParser.TEXT -> onTag("", emptyMap(), depth, parser.text)
+                XmlPullParser.TEXT -> onTag(current, emptyMap(), depth, parser.text)
                 XmlPullParser.END_TAG -> depth--
             }
             event = parser.next()
