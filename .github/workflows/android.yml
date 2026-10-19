@@ -46,6 +46,15 @@ jobs:
           python tools/gen_hsk1.py content/hsk1.epub
           python tools/annotate.py content/hsk1.epub tools/cedict.txt content/hsk1.pinyin.json
 
+      # build.gradle.kts pins buildToolsVersion to 35.0.1 (because AGP 8.6.1 would
+      # otherwise want 34.0.0). Install exactly what the build asks for rather than
+      # depending on whatever the runner image happens to ship.
+      - name: Install pinned Android SDK components
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
+
       - uses: gradle/actions/setup-gradle@v4
 
       # Proves the Python annotator and the Kotlin parser still agree: this is the

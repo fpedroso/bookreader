@@ -50,6 +50,8 @@ def xhtml(title: str, body: str) -> str:
 
 def main() -> int:
     out = sys.argv[1] if len(sys.argv) > 1 else "hsk1.epub"
+    # content/ is gitignored, so it may not exist at all - don't assume it does.
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     paras = "".join(f"<p>{p}</p>\n" for p in PARAGRAPHS)
 
     with zipfile.ZipFile(out, "w") as z:
