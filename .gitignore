@@ -18,6 +18,9 @@ tools/*.jar
 __pycache__/
 *.pyc
 
+# Per-machine emulator config; tools/emulator.env.example documents the keys and stays tracked.
+tools/emulator.env
+
 # ---- Pinned toolchain downloaded by build.sh ----
 build-tools/
 
