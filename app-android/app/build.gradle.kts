@@ -76,6 +76,13 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
+    // On-device sentence translation, the comprehension aid for every language - not just
+    // the two with bundled dictionaries. Models (~30MB per language pair) are downloaded
+    // on demand, but the inference engine ships in the APK as libtranslate_jni.so and is
+    // ~16MB PER ABI, which a universal APK multiplies by four. ABI splits are the lever if
+    // that ever matters.
+    implementation("com.google.mlkit:translate:17.0.3")
+
     // Unit tests. kxml2 supplies XmlPullParser on the JVM so the production
     // parser can be exercised against the PC-side annotator's output.
     testImplementation("junit:junit:4.13.2")

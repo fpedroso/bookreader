@@ -113,6 +113,15 @@ object EpubParser {
                     depth++
                     val name = parser.name.lowercase()
                     if (skipDepth < 0 && name in SKIP_TAGS) skipDepth = depth
+                    // Project Gutenberg wraps its licence boilerplate in #pg-header and
+                    // #pg-footer. It is not part of the book, and rendering it means the
+                    // reader opens on a page of English legalese instead of the text.
+                    val id = parser.getAttributeValue(null, "id")
+                    if (skipDepth < 0 && id != null && id in SKIP_IDS) skipDepth = depth
+                    // A <br> is a real line break *inside* one block: Struwwelpeter keeps a
+                    // whole stanza in a single <p> with <br/> between the lines, so 52 of
+                    // its 98 paragraphs are verse that would otherwise flatten into prose.
+                    if (skipDepth < 0 && name == "br") sb?.append(BR)
                     if (skipDepth < 0 && name in BLOCK_TAGS) {
                         // Innermost block wins: a nested block abandons the outer one.
                         collectDepth = depth
@@ -127,7 +136,15 @@ object EpubParser {
                     val name = parser.name.lowercase()
                     if (skipDepth == depth) skipDepth = -1
                     if (collectDepth == depth && name in BLOCK_TAGS) {
-                        val t = sb?.toString()?.replace(WS, " ")?.trim()
+                        val t = sb?.toString()
+                            // Collapse every whitespace run, including the newlines and
+                            // indentation that Gutenberg's HTML formatting leaves inside a
+                            // paragraph, so only genuine <br> breaks survive.
+                            ?.replace(WS, " ")
+                            ?.replace(BR, "\n")
+                            ?.replace(BREAK_PAD, "\n")
+                            ?.replace(BREAK_RUN, "\n")
+                            ?.trim()
                         if (!t.isNullOrEmpty()) blocks.add(Block(t, headingNow))
                         collectDepth = -1
                         sb = null
@@ -180,5 +197,18 @@ object EpubParser {
         return stack.joinToString("/")
     }
 
-    private val WS = Regex("[ \\t\\r\\f\\u000B]+")
+    /**
+     * Sentinel for a real line break, swapped for "\n" only after whitespace is collapsed.
+     *
+     * It has to be non-whitespace so the collapsing pass cannot eat it, and it has to be
+     * *gone* from the final text, because the block hash strips whitespace - a surviving
+     * newline is invisible to the hash, which is exactly what keeps these line breaks
+     * compatible with sidecars built on the PC, where no <br> handling exists.
+     */
+    private const val BR = "\u241E"
+    private val BREAK_PAD = Regex(" *\\n *")
+    private val BREAK_RUN = Regex("\\n{2,}")
+    private val SKIP_IDS = setOf("pg-header", "pg-footer", "pg-header-wrapper")
+    /** NBSP is whitespace for our purposes but not for [Char.isWhitespace]. */
+    private val WS = Regex("[ \\t\\r\\n\\f\\u000B\\u00A0]+")
 }

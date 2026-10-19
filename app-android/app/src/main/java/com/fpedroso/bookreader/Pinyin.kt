@@ -37,7 +37,11 @@ object Annotations {
 
     /** SHA-1 of the whitespace-stripped text, first 16 hex chars. Must match annotate.py. */
     fun key(text: String): String {
-        val stripped = text.filterNot { it.isWhitespace() }
+        // NBSP counts as whitespace here even though Char.isWhitespace() says otherwise
+        // (Java excludes non-breaking spaces), because Python's \s - which annotate.py
+        // uses - does strip them. Without this, a book containing &nbsp; hashes differently
+        // on each side and the sidecar silently misses.
+        val stripped = text.filterNot { it.isWhitespace() || it == '\u00A0' }
         val digest = MessageDigest.getInstance("SHA-1").digest(stripped.toByteArray(Charsets.UTF_8))
         val hex = StringBuilder()
         for (b in digest.take(8)) hex.append(String.format("%02x", b))

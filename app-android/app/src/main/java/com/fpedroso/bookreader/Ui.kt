@@ -110,6 +110,12 @@ fun LibraryScreen(
 /** Reserved reading row for tokens with no pinyin, so every item is the same height. */
 private const val BLANK = "\u00A0"
 
+// Paragraph rhythm. Space *between* blocks rather than a first-line indent: the publisher
+// CSS used `text-indent: 1.5em` with no paragraph margin, which is the dense print
+// convention and reads cramped on a phone.
+private val PARA_GAP = 20.dp
+private val HEAD_GAP_TOP = 28.dp
+
 // ------------------------------------------------------------------- reader
 
 sealed interface RowItem {
@@ -191,7 +197,11 @@ fun ReaderScreen(
                         modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
                     )
                     is RowItem.Para -> {
-                        Spacer(Modifier.height(if (row.heading) 10.dp else 6.dp))
+                        // Generous space between paragraphs, deliberately. The publisher CSS
+                        // used `text-indent: 1.5em` with no paragraph margin - the dense
+                        // print convention - which reads cramped on a phone. Space between
+                        // blocks is what gives the page room to breathe.
+                        Spacer(Modifier.height(if (row.heading) HEAD_GAP_TOP else PARA_GAP))
                         // A PC sidecar wins; otherwise in-app generation fills this in
                         // lazily, so the row re-renders with readings once they exist.
                         val tokens = row.tokens ?: row.hash?.let { generated[it] }
@@ -199,13 +209,12 @@ fun ReaderScreen(
                             tokens == null ->
                                 // Not annotated yet, or a language with no handler:
                                 // readable straight away, becomes tappable when ready.
-                                Text(row.text, fontSize = 19.sp, lineHeight = 28.sp)
+                                Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
                             row.tokenRanges != null ->
                                 ProseText(row.text, tokens, row.tokenRanges, onWordTap)
                             else ->
                                 WordFlow(tokens, showPinyin, onWordTap)
                         }
-                        Spacer(Modifier.height(4.dp))
                     }
                 }
             }

@@ -98,14 +98,28 @@ def numbered_to_toned(py: str) -> str:
 BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div", "td"}
 SKIP_TAGS = {"script", "style", "head", "title", "rt", "rp"}
 
+# Project Gutenberg wraps its licence boilerplate here. It is not the book, and leaving it
+# in means the reader opens on a page of English legalese instead of the text.
+SKIP_IDS = {"pg-header", "pg-footer", "pg-header-wrapper"}
+
+# Sentinel for a real line break, swapped for "\n" only after whitespace is collapsed.
+# It must be non-whitespace so the collapsing pass cannot eat it, and it must be gone from
+# the final text because the block hash strips whitespace - which is exactly what keeps
+# these breaks invisible to the hash and the sidecars compatible with the Kotlin extractor.
+BR = "\u241e"
+
 
 def strip_tags(el) -> str:
     """Concatenate text, skipping script/style/ruby-annotation subtrees."""
-    parts = []
 
     def walk(node):
-        if node.tag in SKIP_TAGS:
+        tag = node.tag.split("}")[-1].lower() if isinstance(node.tag, str) else ""
+        if tag in SKIP_TAGS:
             return
+        # A <br> is a real line break *inside* one block: verse keeps a whole stanza in a
+        # single <p> with <br/> between the lines, so without this every stanza flattens.
+        if tag == "br":
+            parts.append(BR)
         if node.text:
             parts.append(node.text)
         for child in node:
@@ -113,20 +127,38 @@ def strip_tags(el) -> str:
             if child.tail:
                 parts.append(child.tail)
 
+    parts = []
     walk(el)
     return html.unescape("".join(parts))
 
 
 def blocks_from_xhtml(data: bytes) -> list[str]:
     root = ET.fromstring(data)
+    # Skip the whole pg-header/pg-footer subtree, not just the element carrying the id.
+    skip = set()
+    for el in root.iter():
+        if isinstance(el.tag, str) and el.get("id") in SKIP_IDS:
+            for d in el.iter():
+                skip.add(id(d))
+
     out = []
     for el in root.iter():
-        tag = el.tag.split("}")[-1].lower()
+        if id(el) in skip:
+            continue
+        tag = el.tag.split("}")[-1].lower() if isinstance(el.tag, str) else ""
         if tag in BLOCK_TAGS:
             # Skip containers that hold other block elements - the leaf wins.
-            if any(c.tag.split("}")[-1].lower() in BLOCK_TAGS for c in el):
+            if any(
+                isinstance(c.tag, str) and c.tag.split("}")[-1].lower() in BLOCK_TAGS
+                for c in el
+            ):
                 continue
-            t = re.sub(r"[ \t\r\f\v]+", " ", strip_tags(el)).strip()
+            # \s covers newlines, tabs and NBSP, so indentation inside a paragraph and the
+            # non-breaking spaces Gutenberg sprinkles in both collapse to a plain space -
+            # matching EpubParser.WS. Only genuine <br> breaks survive, as "\n".
+            t = re.sub(r"\s+", " ", strip_tags(el)).strip()
+            t = re.sub(r" *\n *", "\n", t.replace(BR, "\n"))
+            t = re.sub(r"\n{2,}", "\n", t).strip()
             if t:
                 out.append(t)
     return out
