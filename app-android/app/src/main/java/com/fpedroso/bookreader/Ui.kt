@@ -1,8 +1,9 @@
 package com.fpedroso.bookreader
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,8 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.text.style.TextAlign
@@ -154,8 +154,10 @@ fun ReaderScreen(
      * generation finishes, without rebuilding the row list.
      */
     generated: Map<String, List<Token>> = emptyMap(),
+    /** Block hash of the paragraph whose translation modal is open, outlined behind it. */
+    selectedHash: String? = null,
     onTogglePinyin: (Boolean) -> Unit,
-    onWordTap: (Token) -> Unit,
+    onParagraphTap: (RowItem.Para) -> Unit,
     onProgress: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -205,15 +207,32 @@ fun ReaderScreen(
                         // A PC sidecar wins; otherwise in-app generation fills this in
                         // lazily, so the row re-renders with readings once they exist.
                         val tokens = row.tokens ?: row.hash?.let { generated[it] }
-                        when {
-                            tokens == null ->
-                                // Not annotated yet, or a language with no handler:
-                                // readable straight away, becomes tappable when ready.
-                                Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
-                            row.tokenRanges != null ->
-                                ProseText(row.text, tokens, row.tokenRanges, onWordTap)
-                            else ->
-                                WordFlow(tokens, showPinyin, onWordTap)
+                        // The whole paragraph is the tap target now: the word dialog is gone
+                        // and a paragraph is the unit we translate. Outlined while its
+                        // translation modal is open, so you can see which one it refers to.
+                        val selected = row.hash != null && row.hash == selectedHash
+                        val shape = RoundedCornerShape(10.dp)
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(shape)
+                                .then(
+                                    if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, shape)
+                                    else Modifier
+                                )
+                                .clickable(enabled = row.hash != null) { onParagraphTap(row) }
+                                .padding(if (selected) 10.dp else 0.dp),
+                        ) {
+                            when {
+                                tokens == null ->
+                                    // Not annotated yet, or a language with no handler:
+                                    // readable straight away, becomes tappable when ready.
+                                    Text(row.text, fontSize = 19.sp, lineHeight = 30.sp)
+                                row.tokenRanges != null ->
+                                    ProseText(row.text, tokens, row.tokenRanges)
+                                else ->
+                                    WordFlow(tokens, showPinyin)
+                            }
                         }
                     }
                 }
@@ -226,41 +245,27 @@ fun ReaderScreen(
 /**
  * A paragraph of a space-separated language, rendered as continuous prose.
  *
- * The text is drawn exactly as authored - real spaces, punctuation in the right place -
- * and a tap is resolved to whichever token covers the tapped character offset. The
- * alternative (one box per word, as Chinese uses) has no way to keep inter-word
- * whitespace, which produced "Title:Der" and "3—6Jahren".
+ * The text is drawn exactly as authored - real spaces, punctuation in the right place, and
+ * `<br>` line breaks as real newlines. The alternative (one box per word, as Chinese uses)
+ * has no way to keep inter-word whitespace, which produced "Title:Der" and "3—6Jahren".
  *
- * `Text`'s `onTextLayout` gives us the layout to hit-test against; the ruby-text library
- * that would have blocked this was dropped for unrelated reasons, so this works.
+ * Word-level hit testing used to live here, resolving a tap through
+ * `getOffsetForPosition` against per-token ranges. It is gone with the word dialog, so
+ * `tokens`/`ranges` are currently unused and kept only so restoring it stays a small
+ * change; paragraph taps are handled by the row's own clickable.
  */
 @Composable
 fun ProseText(
     text: String,
-    tokens: List<Token>,
-    ranges: List<IntRange>,
-    onWordTap: (Token) -> Unit,
+    @Suppress("UNUSED_PARAMETER") tokens: List<Token>,
+    @Suppress("UNUSED_PARAMETER") ranges: List<IntRange>,
     fontSize: TextUnit = 19.sp,
 ) {
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     Text(
         text = text,
         fontSize = fontSize,
         lineHeight = fontSize * 1.5f,
-        onTextLayout = { layout = it },
-        modifier = Modifier
-            .fillMaxWidth()
-            .pointerInput(tokens, ranges) {
-                detectTapGestures { pos ->
-                    val lr = layout ?: return@detectTapGestures
-                    val offset = lr.getOffsetForPosition(pos)
-                    val hit = tokens.indices.firstOrNull { i ->
-                        val r = ranges[i]
-                        tokens[i].isWord && offset >= r.first && offset <= r.last
-                    }
-                    if (hit != null) onWordTap(tokens[hit])
-                }
-            },
+        modifier = Modifier.fillMaxWidth(),
     )
 }
 
@@ -276,7 +281,7 @@ fun ProseText(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun WordFlow(tokens: List<Token>, showPinyin: Boolean, onWordTap: (Token) -> Unit) {
+fun WordFlow(tokens: List<Token>, showPinyin: Boolean) {
     // The reading row is reserved for EVERY token only when some token actually has a
     // reading. FlowRow aligns items to the TOP, so mixed-height items misalign: with a
     // reading row on the Han words alone, bare punctuation (one row) floated above the
@@ -301,12 +306,54 @@ fun WordFlow(tokens: List<Token>, showPinyin: Boolean, onWordTap: (Token) -> Uni
                 Text(
                     t.word,
                     fontSize = if (t.isHan) 21.sp else 19.sp,
-                    // Tappable for any script, not just Han, so German works too.
-                    modifier = if (t.isWord) Modifier.clickable { onWordTap(t) } else Modifier,
                 )
             }
         }
     }
+}
+
+// ------------------------------------------------------- paragraph translation
+
+/**
+ * The paragraph translation modal.
+ *
+ * Deliberately the same shape as the word dialog it replaced, so tapping a paragraph feels
+ * like the word lookup did: the paragraph stays visible behind the scrim (and is outlined)
+ * and the translation appears underneath it. On-device, so this is a "what does this say"
+ * answer, not a grammar explanation.
+ */
+@Composable
+fun TranslationDialog(
+    source: String,
+    translation: String?,
+    busy: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text("Translation", fontSize = 20.sp) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(source, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(14.dp))
+                when {
+                    // The first call also downloads the ~30MB language model, so this can
+                    // sit here for a while on a cold device.
+                    busy -> Text("Translating…", style = MaterialTheme.typography.bodySmall)
+                    error != null -> Text(
+                        "Translation unavailable — $error",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    translation != null -> Text(
+                        translation,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+    )
 }
 
 // --------------------------------------------------------------- word popup
