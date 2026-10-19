@@ -82,8 +82,8 @@ class SentencesTest {
     fun verseNewlinesAreNotSentenceBreaks() {
         // Verse lines are mid-sentence breaks. The splitter must join them and split on
         // punctuation, otherwise every line becomes a context-free fragment.
-        val stanza = "Sieh einmal, hier steht er,\npfui, der Struwwelpeter!"
-        assertEquals(listOf("Sieh einmal, hier steht er, pfui, der Struwwelpeter!"), texts(stanza))
+        val stanza = "Sieh einmal, hier steht er,\npfui, der Kritzel-Karl!"
+        assertEquals(listOf("Sieh einmal, hier steht er, pfui, der Kritzel-Karl!"), texts(stanza))
     }
 
     @Test
@@ -93,8 +93,8 @@ class SentencesTest {
         // The merge rule is gone, so the fragment is now its own unit and its translation may
         // well be poor. Each unit is exactly what the punctuation says instead.
         assertEquals(
-            listOf("Pfui!", "Der Struwwelpeter war ein ungezogenes Kind."),
-            texts("Pfui! Der Struwwelpeter war ein ungezogenes Kind."),
+            listOf("Pfui!", "Der Kritzel-Karl war ein ungezogenes Kind."),
+            texts("Pfui! Der Kritzel-Karl war ein ungezogenes Kind."),
         )
     }
 
@@ -102,14 +102,14 @@ class SentencesTest {
     fun honourificNowSplitsBecauseThereIsNoList() {
         // ACCEPTED TRADE-OFF again. With "mrs" in the abbreviation list this was one sentence;
         // without a list, "Capital. Capital" is indistinguishable from a real boundary, so
-        // "Dursley" starts a new unit. `Mr. und` stays joined on its own, because the next
+        // "Beispiel" starts a new unit. `Mr. und` stays joined on its own, because the next
         // word is lowercase - only the capitalised continuation after `Mrs.`/`Dr.` splits.
         val s = Sentences.splitGerman(
-            "Mr. und Mrs. Dursley im Ligusterweg Nummer 4 waren stolz darauf, ganz und gar normal zu sein."
+            "Mr. und Mrs. Beispiel in der Gartenstraße 4 waren stolz darauf, ganz und gar gewöhnlich zu sein."
         )
         assertEquals(2, s.size)
         assertEquals("Mr. und Mrs.", s[0].text)
-        assertTrue(s[1].text.startsWith("Dursley im Ligusterweg"))
+        assertTrue(s[1].text.startsWith("Beispiel in der Gartenstraße"))
     }
 
     @Test
@@ -132,10 +132,10 @@ class SentencesTest {
     fun headingsAndVerseKeepTheWholeParagraph() {
         // A heading is not translated a sentence at a time, and verse must not be split: the
         // splitter would turn its line breaks back into prose and undo the verse rendering.
-        assertNull(sentenceUnits("Ein Junge Überlebt", heading = true, lang = "de"))
+        assertNull(sentenceUnits("Ein Neuer Anfang", heading = true, lang = "de"))
         assertNull(
             sentenceUnits(
-                "Sieh einmal, hier steht er,\npfui, der Struwwelpeter!",
+                "Sieh einmal, hier steht er,\npfui, der Kritzel-Karl!",
                 heading = false,
                 lang = "de",
             )

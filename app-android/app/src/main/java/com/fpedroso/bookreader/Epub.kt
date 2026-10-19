@@ -25,8 +25,9 @@ object EpubParser {
     private val BLOCK_TAGS = setOf(
         // `body` and `div` are here because a container's OWN text is a block. Converter and
         // ebook-splitter output dumps prose as bare text nodes inside <body> with empty <p>
-        // tags as spacers; a real Harry Potter EPUB is exactly that shape, and treating only
-        // leaf block elements as blocks extracted its headings and dropped 500 KB of prose.
+        // tags as spacers; one of the books this reader shipped for is exactly that shape, and
+        // treating only leaf block elements as blocks extracted its headings and dropped
+        // 500 KB of prose.
         "body", "div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "dd", "dt", "td", "pre"
     )
     private val SKIP_TAGS = setOf("script", "style", "head", "title", "rt", "rp")

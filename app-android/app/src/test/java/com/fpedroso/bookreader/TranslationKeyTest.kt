@@ -22,7 +22,7 @@ class TranslationKeyTest {
         // Before the splitter change the whole sentence was unit 0 of this block; now unit 0 is
         // the fragment. Under the old key both were "<blockhash>#0" - identical - so one
         // translation answered for both.
-        val wholeSentence = "Mr. und Mrs. Dursley im Ligusterweg Nummer 4 waren stolz darauf."
+        val wholeSentence = "Mr. und Mrs. Beispiel in der Gartenstraße 4 waren stolz darauf."
         val fragment = "Mr. und Mrs."
         assertNotEquals(translationKey(wholeSentence), translationKey(fragment))
     }
@@ -51,7 +51,7 @@ class TranslationKeyTest {
     fun aSentenceAndItsWholeParagraphAreDifferentKeys() {
         // Guards the other direction: a fragment must never inherit its paragraph's translation
         // either, which is the same bug seen from the block instead of the unit.
-        val paragraph = "Mr. und Mrs. Dursley waren stolz darauf. Dann kam mehr Text."
+        val paragraph = "Mr. und Mrs. Beispiel waren stolz darauf. Dann kam mehr Text."
         assertNotEquals(translationKey("Mr. und Mrs."), translationKey(paragraph))
     }
 }

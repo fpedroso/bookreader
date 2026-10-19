@@ -18,7 +18,7 @@ class TranslationUnitTest {
     // The split of this paragraph is asserted in [SentencesTest.honourificNowSplitsBecauseThereIsNoList].
     private val sentences = listOf(
         "Mr. und Mrs.",
-        "Dursley im Ligusterweg Nummer 4 waren stolz darauf, ganz und gar normal zu sein, sehr stolz sogar.",
+        "Beispiel in der Gartenstraße 4 waren stolz darauf, ganz und gar gewöhnlich zu sein, sehr stolz sogar.",
     )
 
     @Test
@@ -31,8 +31,8 @@ class TranslationUnitTest {
         val span = nextSpan(sentences, UnitSpan(0, 1))!!
         assertEquals(UnitSpan(0, 2), span)
         assertEquals(
-            "Mr. und Mrs. Dursley im Ligusterweg Nummer 4 waren stolz darauf, ganz und gar " +
-                "normal zu sein, sehr stolz sogar.",
+            "Mr. und Mrs. Beispiel in der Gartenstraße 4 waren stolz darauf, ganz und gar " +
+                "gewöhnlich zu sein, sehr stolz sogar.",
             unitSource(sentences, span),
         )
     }

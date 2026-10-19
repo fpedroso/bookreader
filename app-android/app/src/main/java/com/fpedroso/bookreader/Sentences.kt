@@ -10,14 +10,14 @@ package com.fpedroso.bookreader
  * different per script, the same way rendering and segmentation are.
  *
  * German is the hard one. `.` is *also* the abbreviation and ordinal marker, so a naive
- * splitter breaks `Dr. Heinrich Hoffmann` and `564. Auflage` - both of which are in the
- * test book.
+ * splitter breaks `Dr. Egon Muster` and `564. Auflage` - both of which appear in the prose
+ * these rules are tested against.
  *
  * There is deliberately NO abbreviation list and no fragment merging: this splitter relies on
  * structure alone - the case of the following token, ordinals, initial chains, the
  * comma/colon rule and closing punctuation. The cost is honest and accepted: `Mr. und Mrs.
- * Dursley` and `Dr. Heinrich Hoffmann` split again, because "Capital. Capital" is lexically
- * identical to a real boundary (`Er ging. Dursley kam.`) and only knowing which words are
+ * Beispiel` and `Dr. Egon Muster` split again, because "Capital. Capital" is lexically
+ * identical to a real boundary (`Er ging. Beispiel kam.`) and only knowing which words are
  * honourifics can separate them. A shape-based substitute ("a short capitalised word before
  * the dot") was rejected too: it suppresses the boundary in `Er traf Hans. Dann ging er.`,
  * which is worse than the false split it would fix. Do not reintroduce either.
@@ -113,7 +113,7 @@ object Sentences {
                 return false
             }
             val word = wordBefore(text, termStart) ?: return true
-            // A single capital letter is an initial: H. Hoffmann.
+            // A single capital letter is an initial: H. Muster.
             if (word.length == 1 && word.first().isUpperCase()) return false
             // Nothing else: there is no abbreviation list, so `Dr.` / `Mrs.` end the sentence
             // here when a capitalised word follows. See the note at the top of this file.

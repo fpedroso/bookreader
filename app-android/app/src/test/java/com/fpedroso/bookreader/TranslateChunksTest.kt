@@ -20,14 +20,14 @@ class TranslateChunksTest {
     fun paragraphWhitespaceIsFlattenedForTheModel() {
         // Verse keeps newlines for display; the model should see flowing text.
         assertEquals(
-            listOf("Sieh einmal, hier steht er, pfui, der Struwwelpeter!"),
-            Translate.chunks("Sieh einmal, hier steht er,\npfui, der Struwwelpeter!", "de"),
+            listOf("Sieh einmal, hier steht er, pfui, der Kritzel-Karl!"),
+            Translate.chunks("Sieh einmal, hier steht er,\npfui, der Kritzel-Karl!", "de"),
         )
     }
 
     @Test
     fun longParagraphSplitsOnlyAtSentenceBoundaries() {
-        val sentence = "Der Friederich, der Friederich, das war ein arger Wueterich! "
+        val sentence = "Der Musterfritz, der Musterfritz, das war ein arger Wirrkopf! "
         val text = sentence.repeat(12)
         val chunks = Translate.chunks(text, "de")
         assertTrue("expected more than one chunk", chunks.size > 1)

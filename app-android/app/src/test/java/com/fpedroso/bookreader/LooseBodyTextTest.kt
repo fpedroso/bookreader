@@ -69,13 +69,13 @@ class LooseBodyTextTest {
     @Test
     fun proseInBareBodyTextIsExtracted() {
         val out = texts(
-            """<h2 class="chapter">Ein Junge Überlebt </h2> Mr. und Mrs. Dursley im
-               Ligusterweg Nummer 4 waren stolz darauf. <p></p> Danach kam noch mehr Text.""",
+            """<h2 class="chapter">Ein Neuer Anfang </h2> Mr. und Mrs. Beispiel in der
+               Gartenstraße 4 waren stolz darauf. <p></p> Danach kam noch mehr Text.""",
         )
-        assertTrue("heading missing: $out", out.any { it == "Ein Junge Überlebt" })
+        assertTrue("heading missing: $out", out.any { it == "Ein Neuer Anfang" })
         assertTrue(
             "prose before the empty <p> was dropped: $out",
-            out.any { it.startsWith("Mr. und Mrs. Dursley") },
+            out.any { it.startsWith("Mr. und Mrs. Beispiel") },
         )
         assertTrue(
             "prose AFTER the empty <p> was dropped - this is the bug a single collector had: $out",
