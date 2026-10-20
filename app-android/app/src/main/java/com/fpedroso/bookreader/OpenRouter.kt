@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -52,6 +53,19 @@ object OpenRouter {
     const val DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
     /**
+     * Whether a request is going to OpenRouter itself.
+     *
+     * Only OpenRouter gets the `reasoning` field below: OpenRouter documents that a parameter a model
+     * does not support is ignored, but a plain OpenAI-compatible server (a llama.cpp on your own
+     * machine, say) is free to reject an unknown field outright, and breaking those endpoints to fix
+     * this one would be a bad trade.
+     */
+    internal fun isOpenRouter(endpoint: String): Boolean =
+        runCatching { URL(endpoint).host }.getOrNull()?.lowercase()?.let {
+            it == "openrouter.ai" || it.endsWith(".openrouter.ai")
+        } == true
+
+    /**
      * A cheap, non-reasoning instruct model as the default.
      *
      * Deliberately NOT a hybrid reasoning model: those can spend the whole output budget in a
@@ -85,7 +99,7 @@ object OpenRouter {
         // The status is read INSIDE the request: after disconnect() it is no longer reliable.
         var status = 0
         val responseText = try {
-            connection.outputStream.use { it.write(requestBody(model, text, context).toByteArray()) }
+            connection.outputStream.use { it.write(requestBody(model, text, context, endpoint).toByteArray()) }
             status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             stream?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -100,20 +114,33 @@ object OpenRouter {
     }
 
     /** The request body. Pure, so the shape can be tested without a socket. */
-    internal fun requestBody(model: String, text: String, context: String? = null): String =
-        JsonObject(
-            mapOf(
-                "model" to JsonPrimitive(model),
-                "temperature" to JsonPrimitive(0),
-                "max_tokens" to JsonPrimitive(MAX_OUTPUT_TOKENS),
-                "messages" to JsonArray(
-                    listOf(
-                        message("system", SYSTEM),
-                        message("user", userText(text, context)),
-                    )
-                ),
-            )
-        ).toString()
+    internal fun requestBody(
+        model: String,
+        text: String,
+        context: String? = null,
+        endpoint: String = DEFAULT_ENDPOINT,
+    ): String {
+        val fields = linkedMapOf<String, JsonElement>(
+            "model" to JsonPrimitive(model),
+            "temperature" to JsonPrimitive(0),
+            "max_tokens" to JsonPrimitive(MAX_OUTPUT_TOKENS),
+            "messages" to JsonArray(
+                listOf(
+                    message("system", SYSTEM),
+                    message("user", userText(text, context)),
+                )
+            ),
+        )
+        // Reasoning off - OpenRouter only, and only because of what its own models now default to:
+        // most of the strong ones reason by default (DeepSeek's whole line-up does, at "high" effort)
+        // and reasoning tokens are billed against max_tokens, so at a translation-sized budget the
+        // model can spend the lot thinking and return an empty answer. Translating one sentence is
+        // not a task that benefits from it, and the empty answer is indistinguishable from a failure.
+        if (isOpenRouter(endpoint)) {
+            fields["reasoning"] = JsonObject(mapOf("enabled" to JsonPrimitive(false)))
+        }
+        return JsonObject(fields).toString()
+    }
 
     /**
      * What the model is asked to translate.
@@ -149,15 +176,38 @@ object OpenRouter {
             val message = error.jsonObject["message"]?.jsonPrimitive?.contentOrNull
             throw IOException(message ?: "the endpoint reported an error")
         }
-        val text = root["choices"]?.jsonArray?.firstOrNull()
-            ?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
+        val choice = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+        val text = choice?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
             ?.trim()
-        if (text.isNullOrBlank()) {
-            throw IOException(
-                "the model returned no text (a reasoning model can do this - try another model id)"
-            )
-        }
+        if (text.isNullOrBlank()) throw IOException(emptyReason(choice, root))
         return text
+    }
+
+    /**
+     * Why an empty answer came back, using the signals OpenRouter documents rather than a shrug.
+     *
+     * The documented case: reasoning tokens are billed against `max_tokens`, so a reasoning model can
+     * spend the entire budget thinking and return `finish_reason: "length"` with nothing in `content`.
+     * Telling the reader which of those it was is the difference between "try another model" and "this
+     * engine is broken".
+     */
+    private fun emptyReason(choice: JsonObject?, root: JsonObject): String {
+        val finish = choice?.get("finish_reason")?.jsonPrimitive?.contentOrNull
+        val usage = root["usage"]?.jsonObject
+        val reasoning = usage?.get("completion_tokens_details")?.jsonObject
+            ?.get("reasoning_tokens")?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        val total = usage?.get("completion_tokens")?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        return when {
+            reasoning != null && reasoning > 0 ->
+                "the model returned no text: it spent $reasoning of ${total ?: "?"} output tokens " +
+                    "thinking, and a translation has no room for that. Try another model id."
+            finish == "length" ->
+                "the model returned no text: it hit the output limit before writing anything."
+            finish == "content_filter" ->
+                "the model refused to translate that text (content filter)."
+            else ->
+                "the model returned no text (a reasoning model can do this - try another model id)"
+        }
     }
 
     /** A readable reason for an HTTP status. Pure, and the messages are the user-facing ones. */

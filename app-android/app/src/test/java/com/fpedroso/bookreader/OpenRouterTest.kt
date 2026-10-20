@@ -194,4 +194,67 @@ class OpenRouterTest {
             unitKey(Engine.QWEN_1_7B, "Bank", null, "whatever/model"),
         )
     }
+
+    @Test
+    fun `reasoning is switched off for OpenRouter`() {
+        // Most of the strong models there reason by default, at high effort, and reasoning tokens are
+        // billed against max_tokens - at a translation-sized budget the answer can come back empty.
+        val body = OpenRouter.requestBody("deepseek/deepseek-v4.1-flash", "Der Hund bellt.")
+        val reasoning = Json.parseToJsonElement(body).jsonObject["reasoning"]!!.jsonObject
+        assertEquals("false", reasoning["enabled"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `reasoning is NOT sent to a non-OpenRouter endpoint`() {
+        // OpenRouter ignores parameters a model does not support; a llama.cpp server on your own
+        // machine is free to reject an unknown field, and it must keep working.
+        val body = OpenRouter.requestBody(
+            model = "local-model",
+            text = "Der Hund bellt.",
+            endpoint = "http://10.0.2.2:8731/v1/chat/completions",
+        )
+        assertTrue("reasoning should be absent", Json.parseToJsonElement(body).jsonObject["reasoning"] == null)
+    }
+
+    @Test
+    fun `only openrouter hosts count as OpenRouter`() {
+        assertTrue(OpenRouter.isOpenRouter("https://openrouter.ai/api/v1/chat/completions"))
+        assertTrue(OpenRouter.isOpenRouter("https://eu.openrouter.ai/api/v1/chat/completions"))
+        assertTrue(!OpenRouter.isOpenRouter("http://10.0.2.2:8731/v1/chat/completions"))
+        assertTrue(!OpenRouter.isOpenRouter("https://openrouter.ai.evil.example/v1"))
+        assertTrue(!OpenRouter.isOpenRouter("not a url"))
+    }
+
+    @Test
+    fun `an empty answer reports that reasoning ate the budget`() {
+        val response = """
+            {"choices":[{"finish_reason":"length","message":{"content":""}}],
+             "usage":{"completion_tokens":302,"completion_tokens_details":{"reasoning_tokens":301}}}
+        """.trimIndent()
+        val e = runCatching { OpenRouter.content(response) }.exceptionOrNull()
+        assertTrue(e!!.message!!, e.message!!.contains("301"))
+        assertTrue(e.message!!, e.message!!.contains("302"))
+    }
+
+    @Test
+    fun `an empty answer with no usage still explains itself`() {
+        val e = runCatching {
+            OpenRouter.content("""{"choices":[{"message":{"content":""}}]}""")
+        }.exceptionOrNull()
+        assertTrue(e is java.io.IOException)
+        assertTrue(e!!.message!!.contains("reasoning model"))
+    }
+
+    @Test
+    fun `a truncated or filtered answer says which it was`() {
+        val truncated = runCatching {
+            OpenRouter.content("""{"choices":[{"finish_reason":"length","message":{"content":""}}]}""")
+        }.exceptionOrNull()
+        assertTrue(truncated!!.message!!.contains("output limit"))
+
+        val filtered = runCatching {
+            OpenRouter.content("""{"choices":[{"finish_reason":"content_filter","message":{"content":""}}]}""")
+        }.exceptionOrNull()
+        assertTrue(filtered!!.message!!.contains("content filter"))
+    }
 }
