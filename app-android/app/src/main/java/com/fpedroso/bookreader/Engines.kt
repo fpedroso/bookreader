@@ -40,13 +40,14 @@ enum class Engine(
     val usesContext: Boolean get() = this != MLKIT
 
     /**
-     * Whether this build can actually run the engine.
+     * Whether this build can run the engine.
      *
-     * The Qwen models are downloadable and deletable from Settings today; running them needs the
-     * LiteRT-LM runtime, which is not wired up yet. Reporting that here is what keeps the engine
-     * picker from offering a choice that would fail on the first tap.
+     * All three, now that LiteRT-LM is a dependency, so what actually gates a choice at runtime is
+     * whether the model is on the device - see [Models.resolve]. The distinction is kept because an
+     * engine could be listed before its runtime ships, and then it must say so rather than be
+     * selectable and fail on the first tap.
      */
-    val runnable: Boolean get() = this == MLKIT
+    val runnable: Boolean get() = true
 
     companion object {
         /** An unknown or missing id reads as the default rather than as a crash. */

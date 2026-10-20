@@ -13,6 +13,12 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.BookReader">
+
+        <!-- Needed by LiteRT-LM's GPU backend. Declared optional so the app still installs on a
+             device (or emulator) that lacks them, where the engine falls back to the CPU. -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
