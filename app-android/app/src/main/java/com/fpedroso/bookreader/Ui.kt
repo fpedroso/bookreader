@@ -547,6 +547,11 @@ fun TranslationDialog(
      */
     downloading: Boolean = false,
     /**
+     * A local model is being loaded from disk on this tap - seconds for 1-2.7 GB, and only on the
+     * first tap after the app starts, or after switching engines.
+     */
+    loadingModel: Boolean = false,
+    /**
      * Extend the open unit by one more sentence and translate the joined text. Non-null only
      * when the unit is a sentence with a following sentence in the same paragraph, so a
      * paragraph or heading tap - and the last sentence of a paragraph - shows nothing here.
@@ -605,6 +610,10 @@ fun TranslationDialog(
                     // taking 90 seconds".
                     downloading -> Text(
                         "Downloading the offline model (~30 MB) — first time only…",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    loadingModel -> Text(
+                        "Loading the model into memory — first tap after opening the app…",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     busy -> Text("Translating…", style = MaterialTheme.typography.bodySmall)

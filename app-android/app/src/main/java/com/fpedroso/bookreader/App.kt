@@ -59,10 +59,21 @@ fun App() {
     // below nothing: it is reachable only from the library, so it cannot be open while reading.
     var settings by remember { mutableStateOf(Store.loadSettings(ctx)) }
     var showSettings by remember { mutableStateOf(false) }
-    // The engine actually used: the chosen one when this build can run it, otherwise ML Kit. A stored
-    // setting naming an engine this build cannot run must not turn every tap into a failure.
+    // The engine actually used. Resolved rather than derived from the stored id: a local model has to
+    // be both runnable and ON THE DEVICE, and either can change while the app runs, so this is
+    // recomputed whenever Settings closes.
     val selectedEngine = Engine.fromId(settings.engine)
-    val engine = if (selectedEngine.runnable) selectedEngine else Engine.MLKIT
+    var engine by remember { mutableStateOf(Engine.MLKIT) }
+    LaunchedEffect(settings, showSettings) {
+        if (!showSettings) {
+            val next = Models.resolve(ctx, selectedEngine)
+            if (next != engine) {
+                // Do not keep a 2.7 GB model resident after the reader has moved away from it.
+                withContext(Dispatchers.IO) { Qwen.unload() }
+                engine = next
+            }
+        }
+    }
     var parsed by remember { mutableStateOf<EpubParser.Book?>(null) }
     var loading by remember { mutableStateOf(false) }
     var lang by remember { mutableStateOf("") }
@@ -88,6 +99,8 @@ fun App() {
     var translation by remember { mutableStateOf<String?>(null) }
     var translating by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
+    /** A local model is being read off disk on this tap - seconds, first tap after a cold start. */
+    var loadingModel by remember { mutableStateOf(false) }
     var alreadyEnglish by remember { mutableStateOf(false) }
     var translateError by remember { mutableStateOf<String?>(null) }
     var translations by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -238,6 +251,7 @@ fun App() {
             translation = key?.let { translations[it] }
             alreadyEnglish = alreadyTarget(declared)
             downloading = false
+            loadingModel = false
             translateError = null
             translating = false
             if (key == null || translation != null) return
@@ -260,12 +274,22 @@ fun App() {
                     alreadyEnglish = true
                     return@launch
                 }
-                downloading = withContext(Dispatchers.Default) { Translate.needsModelDownload(src) }
+                // Only ML Kit pulls a model down on demand. A local model is either on the device or
+                // the call fails saying it is not.
+                downloading = engine == Engine.MLKIT &&
+                    withContext(Dispatchers.Default) { Translate.needsModelDownload(src) }
+                // Reading 1.0-2.7 GB off disk happens on the first tap after a cold start.
+                loadingModel = engine != Engine.MLKIT && !Qwen.isLoaded()
                 val res = runCatching {
                     withContext(Dispatchers.Default) {
-                        Translate.paragraph(ctx, src, source)
+                        if (engine == Engine.MLKIT) {
+                            Translate.paragraph(ctx, src, source)
+                        } else {
+                            Qwen.translate(ctx, engine, source)
+                        }
                     }
                 }
+                loadingModel = false
                 downloading = false
                 translating = false
                 res.fold(
@@ -369,12 +393,13 @@ fun App() {
                 },
                 context = tapContext,
                 pair = languagePair(tapLang),
-                // Provenance: which engine answered. If the stored choice is not runnable in this
-                // build, say what was used instead rather than pretending the setting took effect.
+                // Provenance: which engine answered. If the stored choice could not be used, say what was
+                // used instead rather than pretending the setting took effect.
                 engineLabel = if (engine == selectedEngine) engine.label
-                else "${engine.label} (${selectedEngine.label} is not runnable in this build)",
+                else "${engine.label} (${selectedEngine.label} has no model on this device)",
                 alreadyEnglish = alreadyEnglish,
                 downloading = downloading,
+                loadingModel = loadingModel,
                 onTranslateMore = moreSpan?.let { span ->
                     {
                         val sentences = tapRow?.sentences

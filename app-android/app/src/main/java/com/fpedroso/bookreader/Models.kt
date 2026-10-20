@@ -97,6 +97,19 @@ object Models {
         val f = File(context.getExternalFilesDir(DIR), pack.fileName)
         return f.takeIf { it.isFile && it.length() >= pack.expectedBytes }
     }
+
+    /**
+     * The engine the app should actually translate with.
+     *
+     * Runtime-runnable AND its model on the device, or ML Kit. A stored choice whose model was
+     * deleted (or never downloaded) must not turn every tap into an error - the reader gets ML Kit
+     * and the modal says which engine answered, which is the same rule as for an unrunnable engine.
+     */
+    fun resolve(context: Context, selected: Engine): Engine = when {
+        selected == Engine.MLKIT -> Engine.MLKIT
+        selected.runnable && modelFile(context, selected) != null -> selected
+        else -> Engine.MLKIT
+    }
 }
 
 /**
