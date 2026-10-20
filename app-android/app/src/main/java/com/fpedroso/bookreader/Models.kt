@@ -99,17 +99,27 @@ object Models {
     }
 
     /**
-     * The engine the app should actually translate with.
+     * Whether an engine can be used right now.
      *
-     * Runtime-runnable AND its model on the device, or ML Kit. A stored choice whose model was
-     * deleted (or never downloaded) must not turn every tap into an error - the reader gets ML Kit
-     * and the modal says which engine answered, which is the same rule as for an unrunnable engine.
+     * The condition differs per engine and has to be stated in one place: ML Kit is always usable (it
+     * fetches its packs itself), a local model needs its file complete on disk, and the cloud engine
+     * needs a key. Anything else would mean offering a choice that fails on the first tap.
      */
-    fun resolve(context: Context, selected: Engine): Engine = when {
-        selected == Engine.MLKIT -> Engine.MLKIT
-        selected.runnable && modelFile(context, selected) != null -> selected
-        else -> Engine.MLKIT
+    fun ready(context: Context, engine: Engine, settings: AppSettings): Boolean = when {
+        !engine.runnable -> false
+        engine == Engine.MLKIT -> true
+        engine.cloud -> settings.apiKey.isNotBlank()
+        else -> modelFile(context, engine) != null
     }
+
+    /**
+     * The engine to actually translate with: the chosen one when it is ready, otherwise ML Kit.
+     *
+     * A stored choice whose model was deleted, or whose key was cleared, must not turn every tap into
+     * an error - the reader gets ML Kit and the modal says which engine answered.
+     */
+    fun resolve(context: Context, selected: Engine, settings: AppSettings): Engine =
+        if (ready(context, selected, settings)) selected else Engine.MLKIT
 }
 
 /**

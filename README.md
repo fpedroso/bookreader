@@ -30,18 +30,22 @@ the words and sentences you can't.
    Identification. The book-level `dc:language` is not trusted on its own: a German novel's
    front matter is routinely English, and translating it as German returns the original words
    with nothing to say why.
-6. **Translate.** On device with ML Kit (`Translate.kt`), into a modal (`TranslationDialog`) that
-   names the pair, e.g. `German → English`. If the text is already English it says so and never
-   calls the model. No account, no cost, and the text never leaves the device — the ~30 MB model
-   downloads once per language pair, and the dialog says so while that happens.
+6. **Translate.** Into a modal (`TranslationDialog`) that names the pair (`German → English`) and the
+   engine — and the model, when the engine does not pin one — that produced the answer. If the text
+   is already English it says so and never calls a model. `ML Kit` and the Qwen engines run on the
+   device: no account, no cost, and the text never leaves the phone (the ~30 MB ML Kit model
+   downloads once per language pair and the modal says so while that happens). `OpenRouter` is a
+   cloud call with your own key, and that is the one engine where the text leaves the device.
 7. **Cache.** Translations are stored per book in `translations.json` beside the book, keyed by
    a hash of the source text itself — never by position, so a sentence cannot inherit another
    sentence's translation when the splitter changes, and re-tapping is free. A word and a sentence
    share the one map; different text cannot collide.
-8. **Settings** (`Engines.kt`, `Models.kt`) choose the translation engine and manage its model:
-   per-pack state, download with progress, and delete. The engine is part of every cache key, and
-   the translation modal names the engine that answered, because two engines fail differently and
-   the reader is the one weighing the output.
+8. **Settings** (`Engines.kt`, `Models.kt`, `OpenRouter.kt`) choose the translation engine, manage
+   its model, and hold the cloud engine's API key, model id and endpoint: per-pack state, download
+   with progress, and delete; a Test button that makes a real call, because a key is only worth
+   saving if it works. The engine is part of every cache key, and the translation modal names the
+   engine that answered, because two engines fail differently and the reader is the one weighing
+   the output.
 
 **Opening a book never blocks on any per-language preparation.** Any EPUB in any language
 imports and renders as plain text. Translation is offered for **German books only** for now — the
@@ -53,10 +57,25 @@ more than one language. A row with no translation offered renders inert: no chip
 screen. An engine whose model is missing, or which this build cannot run, says so instead of being
 selectable — a setting that turns every tap into a failure is worse than no setting.
 
-**The app's only network use is fetching a model you asked for.** Translation itself is on-device
-and nothing you read leaves the phone; `INTERNET` exists solely so Settings can download a 1.0 GB
-or 2.5 GB model file. The models are ordinary files in the app's external storage, deleted from
-Settings — or with the app.
+**The app's network use depends on the engine you choose.** ML Kit, Qwen3 1.7B and Qwen3 4B
+translate on the device and nothing you read leaves the phone; for those, `INTERNET` exists solely so
+Settings can download a 1.0 GB or 2.5 GB model file, and the models are ordinary files in the app's
+external storage, deleted from Settings — or with the app.
+
+**OpenRouter is the exception, and it says so where you would look for it.** Choosing the cloud
+engine — or typing a key into its settings — means the word or sentence you tap is sent to that
+endpoint; the Settings section states it in the first line, and the translation modal names the
+engine and model that answered. The API key is stored in this app's private `settings.json`, which
+is excluded from cloud backup and device transfer (`res/xml/backup_rules.xml`,
+`res/xml/data_extraction_rules.xml`) so a key cannot ride into a backup. Any OpenAI-compatible
+endpoint can be used, including a server on your own machine; cleartext HTTP is permitted only for
+`localhost`/`127.0.0.1`/`10.0.2.2` (`res/xml/network_security_config.xml`), so the rest of the app
+still cannot be downgraded to plain HTTP.
+
+**Word taps send the sentence too.** A tapped word goes to the engine with the sentence it was
+tapped in, labelled (`Word: Bank\nIn the sentence: …`), because a bare word is ambiguous — `Bank` is
+a bench in *Struwwelpeter*, not a bank. The sentence a word came from is also part of its cache key,
+so the same word in two sentences is two translations.
 
 ## Build
 
@@ -138,11 +157,17 @@ often not installed, and without `cmdline-tools` AGP cannot fetch it.
 
 ## Known gaps
 
-- **The Qwen engines can be downloaded and deleted but not used yet.** Running them needs the
-  LiteRT-LM runtime, and every published `litertlm-android` is built with a newer Kotlin than this
-  project's 2.0.21 pin (0.16.1 is metadata 2.3.0, 0.17+ is 2.4.0; class-file major 65, against JVM
-  target 17). Adopting it therefore means a toolchain bump — Kotlin at minimum, likely AGP and
-  compileSdk with it — which is the same tower that ruled out Readium 3.4.0. Undecided, not done.
+- **The local engines still receive a bare word.** A tapped word reaches ML Kit and the Qwen models
+  on its own; only the cloud engine is sent the sentence it was tapped in. That sentence is already
+  on screen and already part of the word's cache key, so the fix is small — and worth making, since
+  a bare `Bank` is exactly the ambiguity the sentence resolves.
+- **The local engines' speed on a phone is unmeasured.** The emulator is CPU-only and far too slow
+  to time (one sentence was still generating after four minutes); the published figure for this model
+  size on a phone's GPU/NPU is 16-28 tokens/s, which would be 2-4 s a sentence. The Qwen engines
+  load and translate — verified on the emulator — but only the phone can say whether the wait is
+  acceptable while reading.
+- **A `Test the key` result is not persisted**, so the success line disappears when Settings is
+  reopened. The saved key is what matters; the line is only feedback for the call just made.
 - **A word's translation is not a dictionary entry.** ML Kit returns one rendering of the form you
   tapped — no lemma, no part of speech, no alternative senses — so an inflected or polysemous word
   can come back with a sense that does not fit the sentence. The sentence the word sits in is shown

@@ -25,7 +25,12 @@ enum class Engine(
     QWEN_4B(
         id = "qwen3-4b",
         label = "Qwen3 4B",
-        note = "2.5 GB. Roughly twice the wait of the 1.7B, and the best of the three on the hardest sentences.",
+        note = "2.5 GB. Roughly twice the wait of the 1.7B, and the best of the three local models on the hardest sentences.",
+    ),
+    OPENROUTER(
+        id = "openrouter",
+        label = "OpenRouter (cloud)",
+        note = "Cents for a whole book, and usually the best of the four — but the text leaves the device. Needs an API key.",
     ),
     ;
 
@@ -38,6 +43,14 @@ enum class Engine(
      * for it the context is not part of the key and would only duplicate entries.
      */
     val usesContext: Boolean get() = this != MLKIT
+
+    /**
+     * Whether the text leaves the device for this engine.
+     *
+     * Surfaced in Settings rather than buried: the app is otherwise entirely on-device, and a reader
+     * choosing this engine is choosing to send what they are reading to a third party.
+     */
+    val cloud: Boolean get() = this == OPENROUTER
 
     /**
      * Whether this build can run the engine.

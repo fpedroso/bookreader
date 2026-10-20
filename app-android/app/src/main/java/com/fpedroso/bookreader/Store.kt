@@ -28,6 +28,19 @@ data class LibraryState(val books: List<BookMeta> = emptyList())
 data class AppSettings(
     /** Id of the selected [Engine]; an unknown id reads back as the default. */
     val engine: String = Engine.MLKIT.id,
+    /**
+     * The OpenRouter (or any OpenAI-compatible) API key. Stored in this file, which is excluded from
+     * cloud backup - see `res/xml/backup_rules.xml`. It is a key the reader typed for their own use,
+     * not a secret shipped with the app.
+     */
+    val apiKey: String = "",
+    /** Any model id the endpoint knows; the default is a cheap non-reasoning instruct model. */
+    val apiModel: String = OpenRouter.DEFAULT_MODEL,
+    /**
+     * The chat-completions endpoint. A setting rather than a constant because the same request shape
+     * works against OpenAI, DeepSeek, or a llama.cpp server on your own machine.
+     */
+    val apiEndpoint: String = OpenRouter.DEFAULT_ENDPOINT,
 )
 
 /** Plain-file library: no database dependency for v1. */

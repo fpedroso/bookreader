@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup/transfer rules, which take precedence over backup_rules.xml on those versions.
+  Both files exclude settings.json for the same reason: the API key should not travel.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="settings.json" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="settings.json" />
+    </device-transfer>
+</data-extraction-rules>

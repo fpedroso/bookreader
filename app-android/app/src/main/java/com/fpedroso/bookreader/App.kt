@@ -66,7 +66,7 @@ fun App() {
     var engine by remember { mutableStateOf(Engine.MLKIT) }
     LaunchedEffect(settings, showSettings) {
         if (!showSettings) {
-            val next = Models.resolve(ctx, selectedEngine)
+            val next = Models.resolve(ctx, selectedEngine, settings)
             if (next != engine) {
                 // Do not keep a 2.7 GB model resident after the reader has moved away from it.
                 withContext(Dispatchers.IO) { Qwen.unload() }
@@ -200,9 +200,16 @@ fun App() {
             // The STORED choice, not the effective engine: if a build cannot run what is stored, the
             // radio should still show what was chosen rather than silently rewrite it.
             engine = selectedEngine,
+            settings = settings,
             onSelectEngine = { picked ->
-                settings = AppSettings(engine = picked.id)
+                // copy(), never a fresh AppSettings: the API key, model and endpoint live in the
+                // same record, and selecting an engine must not clear them.
+                settings = settings.copy(engine = picked.id)
                 Store.saveSettings(ctx, settings)
+            },
+            onSettings = { next ->
+                settings = next
+                Store.saveSettings(ctx, next)
             },
             onBack = { showSettings = false },
         )
@@ -278,14 +285,25 @@ fun App() {
                 // the call fails saying it is not.
                 downloading = engine == Engine.MLKIT &&
                     withContext(Dispatchers.Default) { Translate.needsModelDownload(src) }
-                // Reading 1.0-2.7 GB off disk happens on the first tap after a cold start.
-                loadingModel = engine != Engine.MLKIT && !Qwen.isLoaded()
+                // Reading a local model off disk happens on the first tap after a cold start. A cloud
+                // engine has nothing to load, so it must not claim to be loading one.
+                loadingModel = !engine.cloud && engine != Engine.MLKIT && !Qwen.isLoaded()
                 val res = runCatching {
                     withContext(Dispatchers.Default) {
-                        if (engine == Engine.MLKIT) {
-                            Translate.paragraph(ctx, src, source)
-                        } else {
-                            Qwen.translate(ctx, engine, source)
+                        when (engine) {
+                            Engine.MLKIT -> Translate.paragraph(ctx, src, source)
+                            // The cloud engine is the one place the text leaves the device; the
+                            // endpoint, key and model all come from Settings.
+                            Engine.OPENROUTER -> OpenRouter.translate(
+                                endpoint = settings.apiEndpoint,
+                                apiKey = settings.apiKey,
+                                model = settings.apiModel,
+                                text = source,
+                                // The sentence a word was tapped in, when there is one: it is what
+                                // tells "Bank" the bench from "Bank" the bank.
+                                context = tapContext,
+                            )
+                            else -> Qwen.translate(ctx, engine, source)
                         }
                     }
                 }
@@ -393,10 +411,9 @@ fun App() {
                 },
                 context = tapContext,
                 pair = languagePair(tapLang),
-                // Provenance: which engine answered. If the stored choice could not be used, say what was
-                // used instead rather than pretending the setting took effect.
-                engineLabel = if (engine == selectedEngine) engine.label
-                else "${engine.label} (${selectedEngine.label} has no model on this device)",
+                // Provenance: which engine answered, and which model when that is not fixed. If the stored
+                // choice could not be used, say what was used instead and why.
+                engineLabel = engineProvenance(engine, selectedEngine, settings),
                 alreadyEnglish = alreadyEnglish,
                 downloading = downloading,
                 loadingModel = loadingModel,
@@ -454,6 +471,25 @@ fun App() {
 internal fun sentenceUnits(text: String, heading: Boolean, lang: String): List<String>? {
     if (heading || text.contains('\n')) return null
     return Sentences.split(text, lang).map { it.text }.takeIf { it.isNotEmpty() }
+}
+
+/**
+ * What the translation modal says above the answer: the engine that produced it, and the model id
+ * when the engine does not pin one.
+ *
+ * When the stored choice could not be used (no model downloaded, no key saved), the line names what
+ * answered instead AND why the choice was not honoured - otherwise a reader who picked a 4B model and
+ * got ML Kit's output would blame the model.
+ */
+internal fun engineProvenance(active: Engine, selected: Engine, settings: AppSettings): String {
+    val label = if (active.cloud) "${active.label} · ${settings.apiModel}" else active.label
+    if (active == selected) return label
+    val why = when {
+        !selected.runnable -> "not runnable in this build"
+        selected.cloud -> "no API key saved"
+        else -> "no model on this device"
+    }
+    return "$label (${selected.label}: $why)"
 }
 
 private fun buildRows(book: EpubParser.Book, lang: String): List<RowItem> {

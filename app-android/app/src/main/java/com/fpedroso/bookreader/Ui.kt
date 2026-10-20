@@ -23,6 +23,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -48,6 +49,8 @@ import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -651,7 +654,9 @@ fun TranslationDialog(
 @Composable
 fun SettingsScreen(
     engine: Engine,
+    settings: AppSettings,
     onSelectEngine: (Engine) -> Unit,
+    onSettings: (AppSettings) -> Unit,
     onBack: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -660,6 +665,25 @@ fun SettingsScreen(
     var statuses by remember { mutableStateOf<Map<String, PackStatus>>(emptyMap()) }
     var busy by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    /**
+     * Draft copies of the three text fields.
+     *
+     * Deliberately NOT keyed on the stored values: keying a remembered editable state on the value it
+     * writes recreates the state object on every keystroke, which fights the IME's composition and
+     * duplicating or dropping characters. The stored value is the initial value; after that the field
+     * owns its text and every edit is written through, so nothing is lost by leaving the screen.
+     */
+    var key by remember { mutableStateOf(settings.apiKey) }
+    var model by remember { mutableStateOf(settings.apiModel) }
+    var endpoint by remember { mutableStateOf(settings.apiEndpoint) }
+    var showKey by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    /**
+     * The outcome of the Test button, kept beside the button rather than in the shared list message:
+     * feedback for a button has to appear where the button is, not at the end of a long screen.
+     */
+    var testResult by remember { mutableStateOf<String?>(null) }
+    var testFailed by remember { mutableStateOf(false) }
 
     suspend fun refresh() {
         statuses = packs.associate { it.id to it.status(ctx) }
@@ -686,8 +710,9 @@ fun SettingsScreen(
                 }
             }
             items(Engine.entries.toList()) { e ->
-                val ready = e == Engine.MLKIT ||
-                    packs.any { it.engine == e && statuses[it.id]?.state == PackState.READY }
+                // The same readiness rule the reader path uses, so the picker cannot offer an
+                // engine that a tap would refuse.
+                val ready = Models.ready(ctx, e, settings)
                 val canSelect = e.runnable && ready
                 Row(
                     Modifier
@@ -715,6 +740,11 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )
+                            e.cloud && !ready -> Text(
+                                "Add an API key below to switch to it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                             !ready -> Text(
                                 "Download its model below to switch to it.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -724,6 +754,96 @@ fun SettingsScreen(
                     }
                 }
                 HorizontalDivider()
+            }
+            item {
+                Column(Modifier.padding(16.dp)) {
+                    Text("OpenRouter (cloud)", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "This is the one engine where the text leaves the device: every word or " +
+                            "sentence you tap is sent to the endpoint below, and nothing else in the " +
+                            "app leaves the phone. The key is kept in this app's private files and is " +
+                            "excluded from cloud backup. Any OpenAI-compatible endpoint works here, " +
+                            "including a server running on your own machine.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = key,
+                        onValueChange = {
+                            key = it
+                            onSettings(settings.copy(apiKey = it.trim()))
+                        },
+                        label = { Text("API key") },
+                        singleLine = true,
+                        visualTransformation = if (showKey) VisualTransformation.None
+                        else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            TextButton(onClick = { showKey = !showKey }) {
+                                Text(if (showKey) "Hide" else "Show")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    // Placed directly under the key field on purpose: after typing a key the keyboard
+                    // covers the lower half of the screen, and the button that checks that key must
+                    // not be the thing hidden behind it.
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                testing = true
+                                testResult = null
+                                val res = runCatching {
+                                    OpenRouter.translate(
+                                        endpoint = settings.apiEndpoint,
+                                        apiKey = settings.apiKey,
+                                        model = settings.apiModel,
+                                        text = "Der Arzt kam am Morgen.",
+                                    )
+                                }
+                                testFailed = res.isFailure
+                                testResult = res.fold(
+                                    { "The key works. It translated a test sentence as: \"$it\"" },
+                                    { it.message ?: "the call failed" },
+                                )
+                                testing = false
+                            }
+                        },
+                        enabled = !testing && key.isNotBlank(),
+                    ) { Text(if (testing) "Testing…" else "Test the key") }
+                    testResult?.let { text ->
+                        Text(
+                            text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (testFailed) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = model,
+                        onValueChange = {
+                            model = it
+                            onSettings(settings.copy(apiModel = it.trim()))
+                        },
+                        label = { Text("Model") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = endpoint,
+                        onValueChange = {
+                            endpoint = it
+                            onSettings(settings.copy(apiEndpoint = it.trim()))
+                        },
+                        label = { Text("Endpoint") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
             }
             item {
                 Column(Modifier.padding(16.dp)) {

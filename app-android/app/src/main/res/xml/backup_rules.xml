@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pre-Android 12 auto-backup rules. -->
+<full-backup-content>
+    <!--
+      settings.json holds the API key the reader typed for their own account. Backing up the library
+      and the notes is fine; carrying a key into a cloud backup is not.
+    -->
+    <exclude domain="file" path="settings.json" />
+</full-backup-content>
