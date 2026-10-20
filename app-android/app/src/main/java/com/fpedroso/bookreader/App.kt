@@ -349,7 +349,7 @@ fun App() {
             openTranslation(
                 // The engine is part of the key, and for an engine that reads context so is the
                 // sentence: the same word in two sentences is two different translations.
-                key = unitKey(engine, word.text, sentence),
+                key = unitKey(engine, word.text, sentence, settings.apiModel),
                 source = word.text,
                 blockLang = para.lang,
             )
@@ -365,7 +365,7 @@ fun App() {
             tapIsWord = false
             tapContext = null
             openTranslation(
-                key = unitKey(engine, source),
+                key = unitKey(engine, source, model = settings.apiModel),
                 source = source,
                 blockLang = para.lang,
             )
@@ -381,7 +381,7 @@ fun App() {
                 tapRow = null
                 tapIsWord = false
                 tapContext = null
-                openTranslation(unitKey(engine, para.text), para.text, para.lang)
+                openTranslation(unitKey(engine, para.text, model = settings.apiModel), para.text, para.lang)
             },
             onSentenceTap = onSentenceTap,
             onWordTap = onWordTap,
@@ -430,7 +430,7 @@ fun App() {
                             val joined = unitSource(sentences, span)
                             tapStart = span.start
                             tapCount = span.count
-                            openTranslation(unitKey(engine, joined), joined, tapRow?.lang)
+                            openTranslation(unitKey(engine, joined, model = settings.apiModel), joined, tapRow?.lang)
                         }
                     }
                 },
@@ -443,7 +443,7 @@ fun App() {
                         if (sentence != null) {
                             tapIsWord = false
                             tapContext = null
-                            openTranslation(unitKey(engine, sentence), sentence, tapRow?.lang)
+                            openTranslation(unitKey(engine, sentence, model = settings.apiModel), sentence, tapRow?.lang)
                         }
                     }
                 } else null,

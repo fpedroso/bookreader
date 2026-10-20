@@ -76,11 +76,21 @@ enum class Engine(
  * NUL is the separator: [Annotations.key] strips whitespace, so a separator has to be something that
  * cannot appear in the text and is not whitespace.
  */
-fun unitKey(engine: Engine, source: String, context: String? = null): String {
-    val parts = ArrayList<String>(3)
+fun unitKey(
+    engine: Engine,
+    source: String,
+    context: String? = null,
+    model: String? = null,
+): String {
+    val parts = ArrayList<String>(4)
     parts.add(engine.id)
     parts.add(source)
     if (engine.usesContext && !context.isNullOrBlank()) parts.add(context)
+    // A cloud engine's model is a free-text setting, so it is part of what answered and has to be
+    // part of the key: otherwise retyping the model id serves the previous model's translations
+    // while the modal names the new one, which reads as the new model being bad at its job. (The
+    // local engines pin their model to the engine id, so nothing is passed there.)
+    if (engine.cloud && !model.isNullOrBlank()) parts.add(model)
     // Built on [translationKey] so the properties that make the key safe - whitespace-invariant,
     // sensitive to the text itself - hold for namespaced keys too.
     return translationKey(parts.joinToString("\u0000"))

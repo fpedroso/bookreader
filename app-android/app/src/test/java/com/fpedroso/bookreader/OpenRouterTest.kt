@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -171,5 +172,26 @@ class OpenRouterTest {
     fun `each engine gets its own cache namespace, the cloud one included`() {
         val keys = Engine.entries.map { unitKey(it, "Der Hund bellt.", null) }
         assertEquals(keys.size, keys.toSet().size)
+    }
+
+    @Test
+    fun `the cloud model is part of the cache key`() {
+        val sentence = "Einem Kind, dem man eine Bank zeichnet, ..."
+        val a = unitKey(Engine.OPENROUTER, "Bank", sentence, "vendor/model-a")
+        val b = unitKey(Engine.OPENROUTER, "Bank", sentence, "vendor/model-b")
+        // Otherwise retyping the model id keeps serving the old model's answers while the modal
+        // names the new one - the reader would blame the model that never ran.
+        assertNotEquals(a, b)
+        assertEquals(a, unitKey(Engine.OPENROUTER, "Bank", sentence, "vendor/model-a"))
+    }
+
+    @Test
+    fun `a local engine's key ignores the model, because it does not have one`() {
+        // The model setting is passed at every call site for convenience; it must not fork a local
+        // engine's cache, since those engines pin their model to the engine id.
+        assertEquals(
+            unitKey(Engine.QWEN_1_7B, "Bank", null),
+            unitKey(Engine.QWEN_1_7B, "Bank", null, "whatever/model"),
+        )
     }
 }
