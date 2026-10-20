@@ -21,7 +21,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -33,12 +35,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.TextLayoutResult
@@ -48,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 // ------------------------------------------------------------------ library
 
@@ -58,6 +63,7 @@ fun LibraryScreen(
     onImport: () -> Unit,
     onOpen: (BookMeta) -> Unit,
     onDelete: (BookMeta) -> Unit,
+    onSettings: () -> Unit,
 ) {
     // The book whose ✕ was tapped, held until the confirmation is answered. Deleting is
     // destructive and irreversible - the whole per-book directory goes, cached translations
@@ -77,6 +83,9 @@ fun LibraryScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
+                // Spelled out rather than a gear glyph: the emulator has no emoji font and a
+                // symbol that renders as a box is worse than a word.
+                actions = { TextButton(onClick = onSettings) { Text("Settings") } },
             )
         },
     ) { pad ->
@@ -512,6 +521,11 @@ fun TranslationDialog(
     /** "word", "sentence" or "passage" - which unit is being shown. Only a label. */
     unit: String = "sentence",
     /**
+     * Which engine produced this translation. Shown because the answer's reliability depends on it -
+     * ML Kit and a 1.7B model fail differently - so the reader can weigh what they are reading.
+     */
+    engineLabel: String? = null,
+    /**
      * The sentence a tapped word sits in, shown for context: one word out of context is precisely
      * the thing that translates ambiguously. Null for the other two units.
      */
@@ -576,6 +590,14 @@ fun TranslationDialog(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+                engineLabel?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Spacer(Modifier.height(14.dp))
                 when {
                     // Whether the model is downloading is known as soon as the language is, so
@@ -603,3 +625,210 @@ fun TranslationDialog(
         },
     )
 }
+
+// ------------------------------------------------------------------ settings
+
+/**
+ * Settings: which engine translates, and the models each engine needs.
+ *
+ * The two halves are deliberately on one screen. An engine is not usable without its model, so
+ * choosing an engine and fetching what it needs are the same decision, and separating them would
+ * mean a reader could pick an engine that silently cannot run.
+ *
+ * What can be selected is therefore gated: an engine whose model is absent, or which this build
+ * cannot run yet, shows why instead of being chosen and failing on the first tap.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(
+    engine: Engine,
+    onSelectEngine: (Engine) -> Unit,
+    onBack: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val packs = remember { Models.packs() }
+    var statuses by remember { mutableStateOf<Map<String, PackStatus>>(emptyMap()) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    suspend fun refresh() {
+        statuses = packs.associate { it.id to it.status(ctx) }
+    }
+    LaunchedEffect(Unit) { refresh() }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("←") } },
+            )
+        },
+    ) { pad ->
+        LazyColumn(Modifier.padding(pad).fillMaxSize()) {
+            item {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Translation engine", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Which engine translates a tapped word or sentence.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(Engine.entries.toList()) { e ->
+                val ready = e == Engine.MLKIT ||
+                    packs.any { it.engine == e && statuses[it.id]?.state == PackState.READY }
+                val canSelect = e.runnable && ready
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = canSelect) { onSelectEngine(e) }
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = e == engine,
+                        onClick = { if (canSelect) onSelectEngine(e) },
+                        enabled = canSelect,
+                    )
+                    Column(Modifier.padding(vertical = 8.dp)) {
+                        Text(e.label, fontWeight = FontWeight.Medium)
+                        Text(
+                            e.note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        when {
+                            !e.runnable -> Text(
+                                "Not runnable in this build yet — the model can still be downloaded " +
+                                    "and removed below.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            !ready -> Text(
+                                "Download its model below to switch to it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                HorizontalDivider()
+            }
+            item {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Models", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "The Qwen models are large downloads (1.0 GB and 2.5 GB) and are used entirely " +
+                            "on the device afterwards. ML Kit reports no download progress, so its " +
+                            "packs show a spinner rather than a percentage.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(packs) { pack ->
+                val st = statuses[pack.id]
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(pack.label, fontWeight = FontWeight.Medium)
+                            Text(
+                                packSizeLine(pack, st),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        when (st?.state) {
+                            PackState.READY -> TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        busy = pack.id
+                                        message = null
+                                        runCatching { pack.delete(ctx) }
+                                            .onFailure { message = "${pack.label}: ${it.message}" }
+                                        busy = null
+                                        refresh()
+                                    }
+                                },
+                                enabled = busy == null,
+                            ) { Text("Delete") }
+
+                            PackState.DOWNLOADING -> {}
+
+                            else -> TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        busy = pack.id
+                                        message = null
+                                        runCatching {
+                                            pack.download(ctx) { p ->
+                                                statuses = statuses + (
+                                                    pack.id to PackStatus(PackState.DOWNLOADING, progress = p)
+                                                    )
+                                            }
+                                        }.onFailure { message = "${pack.label}: ${it.message}" }
+                                        busy = null
+                                        refresh()
+                                    }
+                                },
+                                enabled = busy == null,
+                            ) { Text("Download") }
+                        }
+                    }
+                    if (busy == pack.id) {
+                        Spacer(Modifier.height(6.dp))
+                        val progress = st?.progress
+                        if (progress != null) {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                    st?.detail?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                HorizontalDivider()
+            }
+            message?.let { msg ->
+                item {
+                    Text(
+                        msg,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+            item { Spacer(Modifier.height(32.dp)) }
+        }
+    }
+}
+
+/** One line of size information for a pack row: nominal, in progress, or what it occupies now. */
+private fun packSizeLine(pack: ModelPack, status: PackStatus?): String {
+    val nominal = formatSize(pack.approxBytes)
+    return when (status?.state) {
+        PackState.READY ->
+            if (status.bytes != null) "On device: ${formatSize(status.bytes)}" else "On device"
+        PackState.DOWNLOADING -> "Downloading…"
+        else -> "Not downloaded · $nominal"
+    }
+}
+
+/** A size in the unit a person would say it in: MB below a gigabyte, GB above it. */
+internal fun formatSize(bytes: Long): String =
+    if (bytes >= 1_000_000_000L) {
+        String.format(java.util.Locale.US, "%.1f GB", bytes / 1_000_000_000.0)
+    } else {
+        "${bytes / 1_000_000} MB"
+    }

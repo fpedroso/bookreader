@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The app's ONLY network use: fetching a translation model the reader asked for in Settings
+         (the Qwen3 models are 1.0 GB and 2.5 GB). Translation itself is entirely on-device and
+         never leaves the phone. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

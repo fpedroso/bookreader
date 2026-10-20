@@ -20,6 +20,16 @@ data class BookMeta(
 @Serializable
 data class LibraryState(val books: List<BookMeta> = emptyList())
 
+/**
+ * The reader's own choices - separate from the library, because a book list is content and this is
+ * preference, and separate from `translations.json`, which is a cache that can be thrown away.
+ */
+@Serializable
+data class AppSettings(
+    /** Id of the selected [Engine]; an unknown id reads back as the default. */
+    val engine: String = Engine.MLKIT.id,
+)
+
 /** Plain-file library: no database dependency for v1. */
 object Store {
 
@@ -64,6 +74,24 @@ object Store {
     /** Last 12 hex chars of the SHA-1 of the title - a stable-enough id. */
     fun idFor(title: String): String =
         Annotations.key(title).takeLast(12)
+
+    private fun settingsFile(context: Context) = File(context.filesDir, "settings.json")
+
+    /**
+     * Read the reader's choices. A missing or unreadable file is not an error: it means nothing has
+     * been chosen yet, and the defaults are what a fresh install should get.
+     */
+    fun loadSettings(context: Context): AppSettings {
+        val f = settingsFile(context)
+        if (!f.exists()) return AppSettings()
+        return runCatching {
+            json.decodeFromString(AppSettings.serializer(), f.readText())
+        }.getOrElse { AppSettings() }
+    }
+
+    fun saveSettings(context: Context, settings: AppSettings) {
+        settingsFile(context).writeText(json.encodeToString(AppSettings.serializer(), settings))
+    }
 }
 
 /**

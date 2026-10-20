@@ -55,6 +55,14 @@ fun App() {
 
     var library by remember { mutableStateOf(Store.load(ctx)) }
     var openBook by remember { mutableStateOf<BookMeta?>(null) }
+    // The reader's own choices, and whether Settings is open. Settings sits above the library and
+    // below nothing: it is reachable only from the library, so it cannot be open while reading.
+    var settings by remember { mutableStateOf(Store.loadSettings(ctx)) }
+    var showSettings by remember { mutableStateOf(false) }
+    // The engine actually used: the chosen one when this build can run it, otherwise ML Kit. A stored
+    // setting naming an engine this build cannot run must not turn every tap into a failure.
+    val selectedEngine = Engine.fromId(settings.engine)
+    val engine = if (selectedEngine.runnable) selectedEngine else Engine.MLKIT
     var parsed by remember { mutableStateOf<EpubParser.Book?>(null) }
     var loading by remember { mutableStateOf(false) }
     var lang by remember { mutableStateOf("") }
@@ -140,9 +148,14 @@ fun App() {
     }
 
     // The system back gesture must behave like the in-app "←" rather than finishing the
-    // Activity. It also closes the translation modal first, since that sits on top.
-    BackHandler(enabled = openBook != null || tapKey != null) {
-        if (tapKey != null) tapKey = null else closeBook()
+    // Activity. It also closes the translation modal first, since that sits on top, and Settings
+    // before anything else - it is the outermost layer.
+    BackHandler(enabled = openBook != null || tapKey != null || showSettings) {
+        when {
+            showSettings -> showSettings = false
+            tapKey != null -> tapKey = null
+            else -> closeBook()
+        }
     }
 
     // Persist the reading position when the app goes to the background, not only when the book
@@ -169,7 +182,18 @@ fun App() {
     }
 
     val current = openBook
-    if (current == null) {
+    if (showSettings) {
+        SettingsScreen(
+            // The STORED choice, not the effective engine: if a build cannot run what is stored, the
+            // radio should still show what was chosen rather than silently rewrite it.
+            engine = selectedEngine,
+            onSelectEngine = { picked ->
+                settings = AppSettings(engine = picked.id)
+                Store.saveSettings(ctx, settings)
+            },
+            onBack = { showSettings = false },
+        )
+    } else if (current == null) {
         LibraryScreen(
             books = library.books,
             onImport = { picker.launch(arrayOf("application/epub+zip", "*/*")) },
@@ -178,6 +202,7 @@ fun App() {
                 Store.remove(ctx, it.id)
                 library = Store.load(ctx)
             },
+            onSettings = { showSettings = true },
         )
     } else if (loading || parsed == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading…") }
@@ -280,7 +305,9 @@ fun App() {
             tapIsWord = true
             tapContext = sentence
             openTranslation(
-                key = translationKey(word.text),
+                // The engine is part of the key, and for an engine that reads context so is the
+                // sentence: the same word in two sentences is two different translations.
+                key = unitKey(engine, word.text, sentence),
                 source = word.text,
                 blockLang = para.lang,
             )
@@ -296,7 +323,7 @@ fun App() {
             tapIsWord = false
             tapContext = null
             openTranslation(
-                key = translationKey(source),
+                key = unitKey(engine, source),
                 source = source,
                 blockLang = para.lang,
             )
@@ -312,7 +339,7 @@ fun App() {
                 tapRow = null
                 tapIsWord = false
                 tapContext = null
-                openTranslation(translationKey(para.text), para.text, para.lang)
+                openTranslation(unitKey(engine, para.text), para.text, para.lang)
             },
             onSentenceTap = onSentenceTap,
             onWordTap = onWordTap,
@@ -342,6 +369,10 @@ fun App() {
                 },
                 context = tapContext,
                 pair = languagePair(tapLang),
+                // Provenance: which engine answered. If the stored choice is not runnable in this
+                // build, say what was used instead rather than pretending the setting took effect.
+                engineLabel = if (engine == selectedEngine) engine.label
+                else "${engine.label} (${selectedEngine.label} is not runnable in this build)",
                 alreadyEnglish = alreadyEnglish,
                 downloading = downloading,
                 onTranslateMore = moreSpan?.let { span ->
@@ -349,7 +380,7 @@ fun App() {
                         val sentences = tapRow?.sentences
                         if (sentences != null) {
                             // Translate the JOINED text as one unit, under its OWN key.
-                            // translationKey(joined) hashes different text than the fragment,
+                            // unitKey(joined) hashes different text than the fragment,
                             // so it is a different cache key: openTranslation cannot serve the
                             // fragment's translation here, and storing the joined result leaves
                             // the fragment's entry untouched for a later tap. Re-pressing to
@@ -357,7 +388,7 @@ fun App() {
                             val joined = unitSource(sentences, span)
                             tapStart = span.start
                             tapCount = span.count
-                            openTranslation(translationKey(joined), joined, tapRow?.lang)
+                            openTranslation(unitKey(engine, joined), joined, tapRow?.lang)
                         }
                     }
                 },
@@ -370,7 +401,7 @@ fun App() {
                         if (sentence != null) {
                             tapIsWord = false
                             tapContext = null
-                            openTranslation(translationKey(sentence), sentence, tapRow?.lang)
+                            openTranslation(unitKey(engine, sentence), sentence, tapRow?.lang)
                         }
                     }
                 } else null,

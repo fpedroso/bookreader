@@ -1,7 +1,6 @@
 package com.fpedroso.bookreader
 
 import android.content.Context
-import com.google.android.gms.tasks.Task
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.languageid.LanguageIdentifier
@@ -10,11 +9,8 @@ import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.Serializable
 import java.util.Locale
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * Translations cached per book, keyed by block hash - so a sentence that moves, or a book
@@ -164,15 +160,9 @@ object Translate {
     }
 
     /**
-     * Play Services Task -> coroutine. Written here rather than adding
-     * kotlinx-coroutines-play-services, whose version would then need to stay aligned with
-     * the coroutines version Compose already pulls in.
+     * Play Services Task -> coroutine. The bridge itself lives in `Models.kt` as an internal
+     * top-level extension so the model manager and this file share one implementation.
      */
-    private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont ->
-        addOnSuccessListener { value -> if (cont.isActive) cont.resume(value) }
-        addOnFailureListener { e -> if (cont.isActive) cont.resumeWithException(e) }
-        addOnCanceledListener { cont.cancel() }
-    }
 }
 
 // ------------------------------------------------------------- language naming

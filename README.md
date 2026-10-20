@@ -38,11 +38,25 @@ the words and sentences you can't.
    a hash of the source text itself — never by position, so a sentence cannot inherit another
    sentence's translation when the splitter changes, and re-tapping is free. A word and a sentence
    share the one map; different text cannot collide.
+8. **Settings** (`Engines.kt`, `Models.kt`) choose the translation engine and manage its model:
+   per-pack state, download with progress, and delete. The engine is part of every cache key, and
+   the translation modal names the engine that answered, because two engines fail differently and
+   the reader is the one weighing the output.
 
 **Opening a book never blocks on any per-language preparation.** Any EPUB in any language
 imports and renders as plain text. Translation is offered for **German books only** for now — the
-gate is `translationOffered` in `Translate.kt`, one line to widen once the word tap has been read
-on more than one language. A row with no translation offered renders inert: no chip, no word tap.
+gate is `translationOffered` in `Translate.kt`, one line to widen once the tap has been read on
+more than one language. A row with no translation offered renders inert: no chip, no word tap.
+
+**The engine is a setting, and its model is managed in Settings.** ML Kit is the default; Qwen3
+1.7B and Qwen3 4B are listed with what they cost and can be downloaded and deleted from the same
+screen. An engine whose model is missing, or which this build cannot run, says so instead of being
+selectable — a setting that turns every tap into a failure is worse than no setting.
+
+**The app's only network use is fetching a model you asked for.** Translation itself is on-device
+and nothing you read leaves the phone; `INTERNET` exists solely so Settings can download a 1.0 GB
+or 2.5 GB model file. The models are ordinary files in the app's external storage, deleted from
+Settings — or with the app.
 
 ## Build
 
@@ -108,6 +122,13 @@ happen.
 inference is offline and free, so translation can be lazy and automatic with no per-sentence
 cost decision. The price is that it translates rather than explains.
 
+**The engine has to be part of the cache key.** Two engines return different translations for the
+same sentence, so a cache keyed on the text alone would hand ML Kit's answer back after switching
+to a local model — and that reads as the new model being bad, not as the cache being wrong. The
+key is therefore `<engine>·<text>`, plus the surrounding sentence for an engine that reads context
+(a word in two sentences really is two translations; ML Kit's API only ever sees the text, so for
+it the context would only duplicate entries). `EnginesTest` pins all of that.
+
 **No Readium.** `readium-streamer` 3.4.0 requires `compileSdk 37` plus core library
 desugaring (3.2.0+ requires 36). Version 3.1.2 would work — it declares `minCompileSdk=1` —
 but the spec coverage was not worth the dependency for plain EPUB3.
@@ -117,6 +138,11 @@ often not installed, and without `cmdline-tools` AGP cannot fetch it.
 
 ## Known gaps
 
+- **The Qwen engines can be downloaded and deleted but not used yet.** Running them needs the
+  LiteRT-LM runtime, and every published `litertlm-android` is built with a newer Kotlin than this
+  project's 2.0.21 pin (0.16.1 is metadata 2.3.0, 0.17+ is 2.4.0; class-file major 65, against JVM
+  target 17). Adopting it therefore means a toolchain bump — Kotlin at minimum, likely AGP and
+  compileSdk with it — which is the same tower that ruled out Readium 3.4.0. Undecided, not done.
 - **A word's translation is not a dictionary entry.** ML Kit returns one rendering of the form you
   tapped — no lemma, no part of speech, no alternative senses — so an inflected or polysemous word
   can come back with a sense that does not fit the sentence. The sentence the word sits in is shown
