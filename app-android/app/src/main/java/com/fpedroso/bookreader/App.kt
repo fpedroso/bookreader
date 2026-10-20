@@ -70,6 +70,13 @@ fun App() {
     var tapRow by remember { mutableStateOf<RowItem?>(null) }
     var tapStart by remember { mutableStateOf(0) }
     var tapCount by remember { mutableStateOf(1) }
+    // Whether the open unit is a WORD rather than a sentence. The two share tapRow/tapStart/tapCount
+    // - a word tap sets them to the sentence it sits in - so this is what decides which extension
+    // the modal offers: a word hands over to its sentence, a sentence grows by one.
+    var tapIsWord by remember { mutableStateOf(false) }
+    // The sentence a tapped word sits in, shown under the word in the modal. A word alone is
+    // exactly the case that translates ambiguously, so the context is the answer's evidence.
+    var tapContext by remember { mutableStateOf<String?>(null) }
     var translation by remember { mutableStateOf<String?>(null) }
     var translating by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
@@ -258,14 +265,36 @@ fun App() {
             }
         }
 
+        // A WORD: the smallest unit, translated on its own. It is still ML Kit's call, exactly as a
+        // sentence is - there is no dictionary in this app any more - so what comes back is one
+        // rendering of the word with no lemma, part of speech or alternative senses. The sentence
+        // the word sits in is carried along as context, both to show under it and because it is
+        // where "Translate sentence" goes.
+        val onWordTap: (RowItem, Int, Words.Word) -> Unit = { para, i, word ->
+            // For a heading or a stanza there are no sentence units, so i is -1 and the word's
+            // context is the block itself: the chip at the end of that block is the block action.
+            val sentence = para.sentences?.getOrNull(i)
+            tapRow = para
+            tapStart = i.coerceAtLeast(0)
+            tapCount = 1
+            tapIsWord = true
+            tapContext = sentence
+            openTranslation(
+                key = translationKey(word.text),
+                source = word.text,
+                blockLang = para.lang,
+            )
+        }
+
         val onSentenceTap: (RowItem, Int) -> Unit = { para, i ->
-            // The composable the finger landed on IS the sentence, so there is nothing to
-            // resolve: index i names it directly. The span starts as that one sentence and can
-            // be grown by "Translate more".
+            // The chip the finger landed on belongs to the sentence it ends, so index i names it
+            // directly. The span starts as that one sentence and can be grown by "Translate more".
             val source = para.sentences?.getOrNull(i) ?: para.text
             tapRow = para
             tapStart = i
             tapCount = 1
+            tapIsWord = false
+            tapContext = null
             openTranslation(
                 key = translationKey(source),
                 source = source,
@@ -281,21 +310,37 @@ fun App() {
             onParagraphTap = { para ->
                 // No sentence list behind a paragraph or heading, so nothing to extend.
                 tapRow = null
+                tapIsWord = false
+                tapContext = null
                 openTranslation(translationKey(para.text), para.text, para.lang)
             },
             onSentenceTap = onSentenceTap,
+            onWordTap = onWordTap,
             onProgress = { lastIndex = it },
             onBack = closeBook,
         )
         tapKey?.let {
+            val word = tapIsWord
             // The span one sentence longer, or null at the paragraph's end - the modal hides
-            // "Translate more" rather than offering an action that would do nothing.
-            val moreSpan = tapRow?.sentences?.let { nextSpan(it, UnitSpan(tapStart, tapCount)) }
+            // "Translate more" rather than offering an action that would do nothing. A WORD shows
+            // no "Translate more" at all: it hands over to its own sentence instead, which is the
+            // unit a reader actually wants next.
+            val moreSpan =
+                if (word) null
+                else tapRow?.sentences?.let { nextSpan(it, UnitSpan(tapStart, tapCount)) }
             TranslationDialog(
                 source = tapSource,
                 translation = translation,
                 busy = translating,
                 error = translateError,
+                // Three units, one dialog: a word, a sentence, or a whole passage (a heading or a
+                // stanza, which never had sentences to grow into).
+                unit = when {
+                    word -> "word"
+                    tapRow == null -> "passage"
+                    else -> "sentence"
+                },
+                context = tapContext,
                 pair = languagePair(tapLang),
                 alreadyEnglish = alreadyEnglish,
                 downloading = downloading,
@@ -316,9 +361,24 @@ fun App() {
                         }
                     }
                 },
+                // Only a word offers this, and only when it sits in a sentence: the way from the
+                // smallest unit back up to the sentence. It translates under the SENTENCE's own key,
+                // so the result is shared with the chip at the end of that same sentence.
+                onTranslateSentence = if (word && tapContext != null) {
+                    {
+                        val sentence = tapContext
+                        if (sentence != null) {
+                            tapIsWord = false
+                            tapContext = null
+                            openTranslation(translationKey(sentence), sentence, tapRow?.lang)
+                        }
+                    }
+                } else null,
                 onDismiss = {
                     tapKey = null
                     tapRow = null
+                    tapIsWord = false
+                    tapContext = null
                 },
             )
         }
@@ -332,8 +392,8 @@ fun App() {
  * a newline - that is verse. `Sentences.split` normalises whitespace, so splitting a stanza would
  * turn its `<br>` line breaks back into prose and undo the verse rendering.
  *
- * The sentences' own text is returned, not offsets: each one is rendered on its own line and is
- * its own tap target, so the unit is exact by construction.
+ * The sentences' own text is returned, not offsets: each one is rendered on its own line with the
+ * sentence action at its end, so the unit is exact by construction and nothing needs resolving.
  */
 internal fun sentenceUnits(text: String, heading: Boolean, lang: String): List<String>? {
     if (heading || text.contains('\n')) return null
@@ -359,6 +419,10 @@ private fun buildRows(book: EpubParser.Book, lang: String): List<RowItem> {
                     // The block's own resolved language, so the tap translates with the
                     // language that block is actually written in.
                     lang = bl.lang,
+                    // Whether the row offers translation at all. Resolved here rather than in the
+                    // reader so the whole book is decided in one place: German books only, and
+                    // never for a block that is already English.
+                    translatable = translationOffered(lang, bl.lang),
                 )
             )
         }

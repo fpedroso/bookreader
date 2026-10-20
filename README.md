@@ -1,10 +1,10 @@
 # bookreader
 
-An Android EPUB reader for language learners: read any EPUB, and **tap a sentence to see it
-translated into English** — on device, offline.
+An Android EPUB reader for language learners: read any EPUB, **tap a word to see that word in
+English**, or tap the chip at the end of a sentence to see the whole sentence — on device, offline.
 
-Built for reading German books at a level where you can mostly understand them, and checking
-only the sentences you can't.
+Built for reading German books at a level where you can mostly understand them, and checking only
+the words and sentences you can't.
 
 ## What it does
 
@@ -13,29 +13,36 @@ only the sentences you can't.
 2. **Read** it as prose. Blocks come from `EpubParser` in `Epub.kt` — OPF spine order, and a
    stack of block collectors so a container's own text is a block in its own right. The
    reading view is continuous scrolling by design: there is no pagination.
-3. **Sentences.** For German, each paragraph is split into sentences (`Sentences.kt`). Each
-   sentence starts on its own line, inside a subtle tinted band (`surfaceContainer`, 6dp of padding
-   inside it, 12dp between sentences), so the unit of translation is visible at a glance — and a tap
-   translates exactly that sentence. **Translate more** in the modal extends the unit by one sentence
-   at a time, which is the escape hatch when a split landed in the wrong place.
-4. **Per-block language.** A block's language comes from the document's own `lang`/`xml:lang`
+3. **Sentences.** For German, each paragraph is split into sentences (`Sentences.kt`) and each
+   one starts on its own line, 12dp apart (less than the 20dp between paragraphs, so a paragraph
+   break reads as the bigger one). Nothing is drawn behind the text: the layout is the only thing
+   defining the unit, and a small **EN** chip sits inline at the end of each sentence as its
+   action.
+4. **Tap a word** for that word's translation alone (`Words.kt` finds the word under the tap). The
+   modal shows the sentence the word sits in — one word out of context is exactly what translates
+   ambiguously — and offers **Translate sentence** to move up to the whole unit. Tapping a
+   sentence's **EN** chip translates the whole sentence, and **Translate more** there extends the
+   unit by one sentence at a time, which is the escape hatch when a split landed in the wrong
+   place.
+5. **Per-block language.** A block's language comes from the document's own `lang`/`xml:lang`
    (the nearest ancestor first, then `<html lang>`), then the book's `dc:language`, then how
    the book was imported — and only if all of those are silent, ML Kit Language
    Identification. The book-level `dc:language` is not trusted on its own: a German novel's
    front matter is routinely English, and translating it as German returns the original words
    with nothing to say why.
-5. **Translate.** Tapping a sentence translates it on device with ML Kit (`Translate.kt`) and
-   opens the result in a modal (`TranslationDialog`) that names the pair, e.g.
-   `German → English`. If the sentence is already English it says so and never calls the
-   model. No account, no cost, and the text never leaves the device — the ~30 MB model
+6. **Translate.** On device with ML Kit (`Translate.kt`), into a modal (`TranslationDialog`) that
+   names the pair, e.g. `German → English`. If the text is already English it says so and never
+   calls the model. No account, no cost, and the text never leaves the device — the ~30 MB model
    downloads once per language pair, and the dialog says so while that happens.
-6. **Cache.** Translations are stored per book in `translations.json` beside the book, keyed by
+7. **Cache.** Translations are stored per book in `translations.json` beside the book, keyed by
    a hash of the source text itself — never by position, so a sentence cannot inherit another
-   sentence's translation when the splitter changes, and re-tapping is free.
+   sentence's translation when the splitter changes, and re-tapping is free. A word and a sentence
+   share the one map; different text cannot collide.
 
 **Opening a book never blocks on any per-language preparation.** Any EPUB in any language
-imports and renders as plain text; German just adds sentence splitting and translation. ML
-Kit supports many other pairs, but the splitter and the UI are built and tested for German.
+imports and renders as plain text. Translation is offered for **German books only** for now — the
+gate is `translationOffered` in `Translate.kt`, one line to widen once the word tap has been read
+on more than one language. A row with no translation offered renders inert: no chip, no word tap.
 
 ## Build
 
@@ -72,17 +79,30 @@ without its referent. A hardcoded list was rejected in exchange for rules that n
 maintenance, and a "short capitalised word before the dot" rule was rejected too: it also
 suppresses the split in `Er traf Hans. Dann ging er.`
 
-**Each sentence gets its own line, in a subtle band.** One composable per sentence, stacked, each
-behind a `surfaceContainer` tint with 6dp of padding inside it and 12dp between sentences (still
-less than the 20dp between paragraphs, so a paragraph break reads as the bigger one). That is what
-marks the unit — the page had become a grid of frames when sentences were outlined instead.
+**Each sentence gets its own line, and nothing is drawn behind it.** One composable per sentence,
+stacked 12dp apart (less than the 20dp between paragraphs, so a paragraph break reads as the bigger
+one). The layout IS the unit — the page had been a grid of frames when sentences were outlined, and a
+tint that replaced it was removed again in favour of a cleaner page. What marks a unit as
+translatable is now the **EN** chip at the end of it. The price of the layout is a ragged right edge,
+which is the point for a reader comparing sentence structures.
 
-The tint is only viable because of this layout, which is worth knowing before "simplifying" it back
-into flowing prose: applied to a range of continuous text it merges two sentences sharing a line
-into one continuous band, and paints per line segment, so a sentence across four lines reads as four
-stripes. The price of the layout is a ragged right edge, which is the point for a reader comparing
-sentence structures, plus an exact tap target: a composable that *is* the sentence cannot be
-mis-hit, where resolving a tap by nearest character offset was an approximation.
+**A word tap needs offsets; a sentence tap must not use them.** One composable per word throws away
+the real inter-word spacing, so prose stays a single flowing `Text` and the word comes from
+`getOffsetForPosition` plus `Words.at` — an approximation only inside whitespace, where a tap that
+resolves to no word at all asks for the unit rather than doing nothing. The unit itself stays exact
+by construction: one composable per sentence, with the chip appended to that composable.
+
+**The chip is inline content, not a sibling.** `appendInlineContent` lays it out inside the text, so
+it sits at the end of the *last line* the sentence occupies and wraps with it. A `Row` or `FlowRow`
+sibling cannot do that: a sentence that fills the width measures as a full-width item, so the chip
+would drop onto a line of its own and read as a stray bullet. It is found by geometry (the tap's
+offset, or the placeholder's bounding box) rather than by its own `clickable`, because a nested
+clickable inside inline content competes with the text's tap handler for the same gesture.
+
+It spells **EN** rather than drawing a glyph on purpose: `material-icons-extended` is a ~5 MB
+dependency this app has no other use for and the core icon set has no translate symbol, and naming
+the target says what the tap will produce rather than merely that something language-shaped will
+happen.
 
 **Translation runs on device.** ML Kit's models (~30 MB per pair) download on first use and
 inference is offline and free, so translation can be lazy and automatic with no per-sentence
@@ -97,6 +117,13 @@ often not installed, and without `cmdline-tools` AGP cannot fetch it.
 
 ## Known gaps
 
+- **A word's translation is not a dictionary entry.** ML Kit returns one rendering of the form you
+  tapped — no lemma, no part of speech, no alternative senses — so an inflected or polysemous word
+  can come back with a sense that does not fit the sentence. The sentence the word sits in is shown
+  under it for exactly that reason.
+- Translation is offered for German books only, and only for a block that is not already English.
+  Widening it means checking the word splitter against a language that does not separate words with
+  spaces, which it cannot handle: `Words.kt` treats a run of Han as a single token.
 - The sentence splitter is German-focused; other Latin-script languages fall back to a plain
   punctuation split. It is structure-only: no abbreviation list and no fragment merging, so a
   title before a capitalised surname (`Mrs. Smith`) splits, and a bare `Pfui!` is its own unit.

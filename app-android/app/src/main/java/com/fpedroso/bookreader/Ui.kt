@@ -2,6 +2,7 @@ package com.fpedroso.bookreader
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,16 +15,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,8 +38,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -173,38 +182,44 @@ private val HEAD_GAP_BOTTOM = 10.dp
 // at a time: after living with 4dp he asked for more, because the gap is what makes him stop and
 // finish the sentence he is on before moving to the next. Still smaller than PARA_GAP (20dp) so a
 // paragraph boundary stays visibly bigger than a sentence one. One constant, easy to tune.
+// The sentence gap carries more weight than it used to: with the tint gone, separating one
+// sentence from the next is ALL that it does, so it is load-bearing rather than decorative.
 private val SENTENCE_GAP = 12.dp
 
-// Breathing room INSIDE each tinted sentence band, so the text does not sit flush against the
-// band's edges.
-private val SENTENCE_BAND_PAD = 6.dp
+// The page's text inset, on every block - heading, verse and each sentence alike - so the whole
+// book keeps ONE left edge. It used to be the padding INSIDE the sentence band; the band is gone at
+// the reader's request but the margin stayed, because without it the prose would slide under the
+// headings' left edge and the column would read as ragged.
+private val TEXT_INSET = 6.dp
 
-// The horizontal inset inside each band - and applied to every OTHER block's text too, so the page
-// keeps ONE left edge. Without that, insetting only the sentences would indent the body text away
-// from the headings' left edge and leave a visibly ragged column. Kept equal to the vertical pad
-// so the text sits in an even frame rather than being tighter left and right than top and bottom.
-private val SENTENCE_BAND_INSET = 6.dp
+// The inline sentence action is an "EN" chip rather than a Material glyph, for two reasons:
+// material-icons-extended is a ~5 MB dependency this app has no other use for, and the core icon
+// set carries no translate symbol. Spelling out the target says what the tap will produce rather
+// than merely that something language-shaped will happen.
+private const val SENTENCE_ACTION = "sentence-action"
+
+// TextUnit, not Dp: `Placeholder` sizes itself in sp so the chip scales with the reader's font
+// size, which is what keeps it legible once the text is enlarged.
+private val SENTENCE_ACTION_SLOT = 34.sp
+private val SENTENCE_ACTION_HEIGHT = 20.sp
 
 // ------------------------------------------------------------------- reader
 
 /**
  * One row of the reading view. There is a single row type: prose, verse, or a heading - all
- * rendered as text, all tappable. (A chapter-title row used to exist here and never rendered:
- * nothing ever produced one, because the parser has no source for a chapter title.)
+ * rendered as text, and tappable wherever the row offers translation.
  */
 data class RowItem(
     val text: String,
     val heading: Boolean,
     /**
      * Block hash for [Annotations.key] of [text]. It is the translation cache key and the
-     * tap target. Null never happens for parsed prose, but a row without it is simply
-     * not tappable.
+     * outline target. Null never happens for parsed prose.
      */
     val hash: String? = null,
     /**
      * The sentence texts of [text], for prose languages. Each is rendered on its own line and
-     * is its own tap target, so the unit of translation is exact by construction - no offsets
-     * to resolve.
+     * carries the sentence action at its end.
      *
      * Null for headings and verse, which are translated as a whole paragraph: a heading is not
      * translated a sentence at a time, and splitting a stanza would turn its line breaks into
@@ -214,13 +229,18 @@ data class RowItem(
     /**
      * The language THIS block is written in, resolved by the parser from the document's
      * own lang/xml:lang attributes with the book's dc:language as the fallback. Null only
-     * when the book declared nothing either - the tap then falls back to the import-time
-     * hint and finally to ML Kit Language Identification.
+     * when the book declared nothing either.
      *
      * Per block because one book can hold two languages: a German novel's front matter is
      * routinely English, and translating it as German silently produces nothing useful.
      */
     val lang: String? = null,
+    /**
+     * Whether this row offers translation at all - see [translationOffered]. False renders the row
+     * as plain, inert text with no word tap and no sentence action. That is the ordinary case for
+     * a book in any language but German, and for an English block inside a German one.
+     */
+    val translatable: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -231,12 +251,17 @@ fun ReaderScreen(
     initialIndex: Int,
     /**
      * Cache key of the unit whose translation modal is open, outlined behind it. A paragraph
-     * key is the hash of its text; a sentence is outlined not by key but by the composable it
-     * is, so only a paragraph tap shows the outline.
+     * key is the hash of its text; a sentence has no outline, because the EN chip at its end
+     * already says which unit is open.
      */
     selectedKey: String? = null,
     onParagraphTap: (RowItem) -> Unit,
     onSentenceTap: (RowItem, Int) -> Unit,
+    /**
+     * A word was tapped. The [Int] is the sentence index inside the row, or -1 when the row has no
+     * sentence units (a heading or a stanza), where the word's own context is the block itself.
+     */
+    onWordTap: (RowItem, Int, Words.Word) -> Unit,
     onProgress: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -268,56 +293,37 @@ fun ReaderScreen(
                 val shape = RoundedCornerShape(10.dp)
                 val sentences = row.sentences
                 if (sentences != null) {
-                    // One line per sentence, a 12dp gap between them, NO border and NO tint on the
-                    // text itself - instead a subtle band BEHIND each sentence.
+                    // One line per sentence, a 12dp gap between them, and nothing drawn behind the
+                    // text: the band is gone at the reader's request.
                     //
-                    // That tint could not have worked before this layout: applied to a range of
-                    // flowing prose it merges two sentences sharing a line into one continuous
-                    // band, and paints per line segment so a wrapped sentence reads as stripes.
-                    // With one sentence per composable it is a real block behind one unit, which
-                    // is why the idea was worth revisiting once the layout changed.
+                    // The tint used to be what marked a unit as translatable, so with it gone the
+                    // LAYOUT does the marking - one sentence per composable, separated by the gap -
+                    // and the EN chip at the end of each line is what says "this is translatable,
+                    // tap here". The gap is therefore load-bearing, not decoration.
                     //
-                    // surfaceContainer rather than a hardcoded hex, so it stays part of the stock
-                    // Material palette. Deliberately the subtlest step that is still visible: it
-                    // should read as texture, not as cards - the page had already been a grid of
-                    // frames once, and a heavier tint or a border would take it back there.
-                    //
-                    // The gap sits OUTSIDE the tint (padding before background) so the bands are
-                    // visibly separate, and so the untinted space is not a tap target: the tint
-                    // marks exactly what is tappable.
-                    //
-                    // The cost is a ragged right edge and taller paragraphs, accepted
-                    // deliberately: it reads as a block of units rather than a printed page,
-                    // which is what makes sentence structures comparable at a glance. It also
-                    // makes the tap target exact - the composable IS the sentence, where
-                    // resolving a tap by nearest character offset was an approximation.
+                    // Division of labour, and the reason the chip is not optional: the text
+                    // belongs to the WORD tap, the chip owns the sentence. With the text
+                    // word-tappable there is no longer any other way to ask for the whole
+                    // sentence, and a ragged right edge and taller paragraphs are the accepted
+                    // price of that, exactly as they were for the band.
                     Column(Modifier.fillMaxWidth()) {
-                        val bandShape = RoundedCornerShape(6.dp)
                         sentences.forEachIndexed { i, sentence ->
-                            Text(
-                                sentence,
-                                fontSize = 19.sp,
-                                lineHeight = 30.sp,
+                            WordTapText(
+                                text = sentence,
+                                translatable = row.translatable,
+                                onWord = { onWordTap(row, i, it) },
+                                onUnit = { onSentenceTap(row, i) },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = SENTENCE_GAP)
-                                    .clip(bandShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainer)
-                                    // Padding AFTER background, so the tint covers the padding:
-                                    // that is what puts the text inside the band rather than
-                                    // flush against its edge.
-                                    .padding(
-                                        horizontal = SENTENCE_BAND_INSET,
-                                        vertical = SENTENCE_BAND_PAD,
-                                    )
-                                    .clickable(enabled = row.hash != null) { onSentenceTap(row, i) },
+                                    .padding(horizontal = TEXT_INSET),
                             )
                         }
                     }
                 } else {
-                    // The whole paragraph is the tap target (headings, verse):
-                    // outlined while its translation modal is open, so you can see
-                    // which one it is.
+                    // No sentence units, so the chip at the end of the block IS the whole-block
+                    // action (headings and verse), and the block is outlined while its translation
+                    // is open so you can see which one it is.
                     val selected = row.hash != null && row.hash == selectedKey
                     Column(
                         Modifier
@@ -327,32 +333,36 @@ fun ReaderScreen(
                                 if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, shape)
                                 else Modifier
                             )
-                            .clickable(enabled = row.hash != null) { onParagraphTap(row) }
                             .padding(if (selected) 10.dp else 0.dp),
                     ) {
                         if (row.heading) {
                             // A title has no box to mark it any more, so it is set
                             // apart by size and weight only - larger and heavier than
                             // the 19sp body, plus space below so the first paragraph
-                            // does not crowd it. Left-aligned, onBackground colour:
-                            // no tint, no border. The horizontal inset matches the one
-                            // inside the sentence bands so every block shares one left edge.
-                            Text(
-                                row.text,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold,
+                            // does not crowd it. Left-aligned, no tint, no border. The
+                            // horizontal inset matches every other block's so the page keeps
+                            // one left edge.
+                            WordTapText(
+                                text = row.text,
+                                translatable = row.translatable,
+                                onWord = { onWordTap(row, -1, it) },
+                                onUnit = { onParagraphTap(row) },
+                                fontSize = MaterialTheme.typography.titleLarge.fontSize,
+                                lineHeight = MaterialTheme.typography.titleLarge.lineHeight,
+                                weight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(
-                                    start = SENTENCE_BAND_INSET,
-                                    end = SENTENCE_BAND_INSET,
+                                    start = TEXT_INSET,
+                                    end = TEXT_INSET,
                                     bottom = HEAD_GAP_BOTTOM,
                                 ),
                             )
                         } else {
-                            Text(
-                                row.text,
-                                fontSize = 19.sp,
-                                lineHeight = 30.sp,
-                                modifier = Modifier.padding(horizontal = SENTENCE_BAND_INSET),
+                            WordTapText(
+                                text = row.text,
+                                translatable = row.translatable,
+                                onWord = { onWordTap(row, -1, it) },
+                                onUnit = { onParagraphTap(row) },
+                                modifier = Modifier.padding(horizontal = TEXT_INSET),
                             )
                         }
                     }
@@ -363,15 +373,135 @@ fun ReaderScreen(
     }
 }
 
+// -------------------------------------------------------------- word tapping
+
+/**
+ * A sentence - or a whole block, for a heading or a stanza - tappable word by word, with the unit
+ * action sitting INLINE at the very end of the text.
+ *
+ * Why the offset machinery is back. A sentence used to BE its own tap target, so the unit was exact
+ * by construction and `getOffsetForPosition` was deleted on purpose. A word cannot be: one
+ * composable per word throws away the real inter-word spacing, which is how `Title:Der` and
+ * `3—6Jahren` once shipped. So prose stays one flowing `Text` and the tap is resolved through the
+ * layout instead. That is an approximation only inside whitespace, and a tap that resolves to
+ * whitespace asks for the unit rather than doing nothing - so it is never a dead tap.
+ *
+ * The chip is inline content, not a sibling composable, and that is what puts it at the end of the
+ * LAST LINE of the sentence rather than out at the row's right edge. A sibling does not work: a
+ * sentence filling the width measures as a full-width item, so the chip would wrap onto a line of
+ * its own and read as a stray bullet.
+ *
+ * The chip carries no `clickable`, deliberately: the text already has a tap handler, and a nested
+ * clickable inside inline content competes with it for the same gesture. The chip is found by
+ * geometry instead - the tap's offset, or the bounding box of its placeholder.
+ */
+@Composable
+private fun WordTapText(
+    text: String,
+    translatable: Boolean,
+    onWord: (Words.Word) -> Unit,
+    onUnit: () -> Unit,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 19.sp,
+    lineHeight: TextUnit = 30.sp,
+    weight: FontWeight? = null,
+) {
+    if (!translatable) {
+        // No translation offered for this row, so the text is inert: no chip, no tap handler.
+        Text(
+            text,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = weight,
+            modifier = modifier,
+        )
+        return
+    }
+
+    // Read at gesture time, never during composition, so writing it does not recompose the row.
+    val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
+
+    val annotated = remember(text) {
+        buildAnnotatedString {
+            append(text)
+            appendInlineContent(SENTENCE_ACTION, "EN")
+        }
+    }
+    // The chip is appended, so it occupies exactly the one offset after the end of the text.
+    val chipOffset = text.length
+
+    Text(
+        text = annotated,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        fontWeight = weight,
+        inlineContent = mapOf(
+            SENTENCE_ACTION to InlineTextContent(
+                // Wider than the chip itself, with the chip held to its end: that slack IS the gap
+                // between the last letter and the chip, which cannot be a space in the string
+                // because a space would push the chip's offset past the end of the text.
+                Placeholder(
+                    width = SENTENCE_ACTION_SLOT,
+                    height = SENTENCE_ACTION_HEIGHT,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                ),
+            ) { SentenceAction() }
+        ),
+        onTextLayout = { layout.value = it },
+        modifier = modifier.pointerInput(text) {
+            detectTapGestures { pos ->
+                val l = layout.value ?: return@detectTapGestures
+                val offset = l.getOffsetForPosition(pos)
+                val onChip = offset == chipOffset || runCatching {
+                    val box = l.getBoundingBox(chipOffset)
+                    pos.x >= box.left && pos.x <= box.right &&
+                        pos.y >= box.top && pos.y <= box.bottom
+                }.getOrDefault(false)
+                when {
+                    onChip -> onUnit()
+                    // A tap that resolves to something which is not a word at all - punctuation, a
+                    // digit, past the end of the line - asks for the unit instead of doing nothing,
+                    // because a tap that silently does nothing reads as a broken app.
+                    else -> Words.at(text, offset)?.let(onWord) ?: onUnit()
+                }
+            }
+        },
+    )
+}
+
+/** The inline chip that opens a unit's translation. See the SENTENCE_ACTION constants above. */
+@Composable
+private fun SentenceAction() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = RoundedCornerShape(4.dp),
+        ) {
+            Text(
+                "EN",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.5.sp,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
 // ------------------------------------------------------- sentence translation
 
 /**
- * The translation modal.
+ * The unit translation modal.
  *
- * Deliberately the same shape as the word dialog it replaced, so tapping a sentence feels
- * like the word lookup did: the sentence stays visible behind the scrim (and is outlined)
- * and the translation appears underneath it. On-device, so this is a "what does this say"
- * answer, not a grammar explanation.
+ * One dialog for all three units, because they differ only in what they are called and in which
+ * extension they offer: a WORD - whose context sentence is shown beneath it, and which can hand
+ * over to that sentence - a SENTENCE, extendable with "Translate more", and a whole PASSAGE (a
+ * heading or a stanza), which has no sentences to grow into.
+ *
+ * Deliberately the same shape the word dialog had: the unit stays visible behind the scrim and the
+ * translation appears underneath it. On-device, so this is a "what does this say" answer, not a
+ * grammar explanation.
  */
 @Composable
 fun TranslationDialog(
@@ -379,6 +509,13 @@ fun TranslationDialog(
     translation: String?,
     busy: Boolean,
     error: String?,
+    /** "word", "sentence" or "passage" - which unit is being shown. Only a label. */
+    unit: String = "sentence",
+    /**
+     * The sentence a tapped word sits in, shown for context: one word out of context is precisely
+     * the thing that translates ambiguously. Null for the other two units.
+     */
+    context: String? = null,
     /**
      * "German → English" for the resolved source language of this unit, or null when there is
      * nothing to translate (the source is already English) or its language is not known yet.
@@ -401,24 +538,36 @@ fun TranslationDialog(
      * paragraph or heading tap - and the last sentence of a paragraph - shows nothing here.
      */
     onTranslateMore: (() -> Unit)? = null,
+    /**
+     * Translate the sentence the open word sits in - the way back to the sentence unit after a word
+     * tap. Null unless a word was tapped inside a sentence.
+     */
+    onTranslateSentence: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            // "Translate more" rides next to "Close": both act on the modal, both leave it open
-            // (extending does not dismiss - the reader reads the longer translation in place).
+            // The extending actions ride next to "Close": each acts on the modal and none of them
+            // dismisses - the reader reads the longer translation in place.
             Row {
-                onTranslateMore?.let { more ->
-                    TextButton(onClick = more) { Text("Translate more") }
-                }
+                onTranslateSentence?.let { go -> TextButton(onClick = go) { Text("Translate sentence") } }
+                onTranslateMore?.let { more -> TextButton(onClick = more) { Text("Translate more") } }
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         },
-        title = { Text("Translation", fontSize = 20.sp) },
+        title = { Text(unit.replaceFirstChar { it.uppercase() }, fontSize = 20.sp) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(source, style = MaterialTheme.typography.bodySmall)
+                context?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 pair?.let {
                     Spacer(Modifier.height(6.dp))
                     Text(

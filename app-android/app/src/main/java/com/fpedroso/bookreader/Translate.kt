@@ -187,6 +187,25 @@ internal fun alreadyTarget(source: String?): Boolean =
     source != null && source.trim().lowercase().take(2) == Translate.TARGET
 
 /**
+ * Whether the reader offers to translate a block at all.
+ *
+ * **German books only, deliberately** - an explicit, temporary narrowing of a capability that
+ * works for any of ML Kit's 50+ languages. The point is not that other languages fail; it is that
+ * a word-level tap has only been judged on German prose, and the tokenizer behind it is a
+ * space-and-punctuation splitter with no notion of scripts that do not use spaces. Widening this
+ * is one line, once the tap has been read on more than one language.
+ *
+ * The block's OWN language is checked too, and `false` is returned for a block that is already
+ * English: a German novel's front matter is routinely English (title page, copyright), and an
+ * affordance offering to translate it would only ever answer "this is already in English".
+ * A null block language is the undeclared case, which falls back to the book's - so it is offered.
+ */
+internal fun translationOffered(bookLang: String?, blockLang: String?): Boolean {
+    if (bookLang?.trim()?.lowercase()?.take(2) != "de") return false
+    return !alreadyTarget(blockLang)
+}
+
+/**
  * "German → English" for the modal, derived from the resolved source language for this
  * sentence; null when there is nothing to translate (the source is the target) or no source
  * language was resolved.
