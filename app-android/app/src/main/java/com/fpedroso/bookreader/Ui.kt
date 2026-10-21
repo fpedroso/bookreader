@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -46,12 +47,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -267,6 +270,11 @@ fun ReaderScreen(
      * already says which unit is open.
      */
     selectedKey: String? = null,
+    /**
+     * The open book's word counts, or null when shading is off. Not computed here: the counts are a
+     * property of the whole book, so they are taken once when it opens.
+     */
+    frequency: WordFrequency? = null,
     onParagraphTap: (RowItem) -> Unit,
     onSentenceTap: (RowItem, Int) -> Unit,
     /**
@@ -325,6 +333,7 @@ fun ReaderScreen(
                                 translatable = row.translatable,
                                 onWord = { onWordTap(row, i, it) },
                                 onUnit = { onSentenceTap(row, i) },
+                                frequency = frequency,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = SENTENCE_GAP)
@@ -362,6 +371,9 @@ fun ReaderScreen(
                                 fontSize = MaterialTheme.typography.titleLarge.fontSize,
                                 lineHeight = MaterialTheme.typography.titleLarge.lineHeight,
                                 weight = FontWeight.SemiBold,
+                                // Deliberately NOT shaded: a heading is a title drawn in titleLarge
+                                // and SemiBold, and a faded word inside one reads as a rendering
+                                // fault rather than as information about the book.
                                 modifier = Modifier.padding(
                                     start = TEXT_INSET,
                                     end = TEXT_INSET,
@@ -374,6 +386,9 @@ fun ReaderScreen(
                                 translatable = row.translatable,
                                 onWord = { onWordTap(row, -1, it) },
                                 onUnit = { onParagraphTap(row) },
+                                // Shaded like prose: a verse stanza is one block, and its words are
+                                // the same words the body uses.
+                                frequency = frequency,
                                 modifier = Modifier.padding(horizontal = TEXT_INSET),
                             )
                         }
@@ -417,6 +432,14 @@ private fun WordTapText(
     fontSize: TextUnit = 19.sp,
     lineHeight: TextUnit = 30.sp,
     weight: FontWeight? = null,
+    /**
+     * The book's word counts, when shading is on. Null leaves the prose in one colour.
+     *
+     * Passed as the whole [WordFrequency] rather than a band lookup so the `remember` key below is
+     * a stable object: a lambda would be a new instance on every recomposition and rebuild every
+     * visible sentence's spans for nothing.
+     */
+    frequency: WordFrequency? = null,
 ) {
     if (!translatable) {
         // No translation offered for this row, so the text is inert: no chip, no tap handler.
@@ -433,9 +456,34 @@ private fun WordTapText(
     // Read at gesture time, never during composition, so writing it does not recompose the row.
     val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    val annotated = remember(text) {
+    // Resolved here, outside buildAnnotatedString: reading the theme is a composable call and the
+    // annotated-string builder is not a composable scope.
+    val tints = mapOf(
+        Band.FREQUENT to wordTint(Band.FREQUENT),
+        Band.OCCASIONAL to wordTint(Band.OCCASIONAL),
+        Band.RARE to wordTint(Band.RARE),
+    )
+
+    val annotated = remember(text, frequency, tints) {
         buildAnnotatedString {
-            append(text)
+            if (frequency == null) {
+                append(text)
+            } else {
+                // The words are appended in their own styled runs and every gap - space,
+                // punctuation, an em dash - is appended plain, so the string built here is
+                // character-for-character the string that was handed in. That matters: the tap
+                // handler resolves an offset against this text, and shading must not move one.
+                var at = 0
+                for (span in shadedSpans(text, frequency::bandOf)) {
+                    append(text.substring(at, span.start))
+                    val colour = tints[span.band]
+                    val word = text.substring(span.start, span.end)
+                    if (colour == null) append(word)
+                    else withStyle(SpanStyle(color = colour)) { append(word) }
+                    at = span.end
+                }
+                append(text.substring(at))
+            }
             appendInlineContent(SENTENCE_ACTION, "EN")
         }
     }
@@ -540,6 +588,15 @@ fun TranslationDialog(
      */
     pair: String? = null,
     /**
+     * "appears 23× in this book" - how often the tapped word occurs in the book being read. Shown
+     * for a WORD only.
+     *
+     * The raw count rather than a band name, deliberately: a count is a fact the reader can check
+     * against the page, a band name is jargon. It is also what makes the shading mean something on
+     * a single word, since the page can only ever show four tones.
+     */
+    frequencyNote: String? = null,
+    /**
      * The unit is already in the target language, so no model was called. This is the ordinary
      * outcome on a German book's English front matter.
      */
@@ -584,6 +641,17 @@ fun TranslationDialog(
                         it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                // How often this word recurs in the book, for a word tap only. It sits with the
+                // word rather than under the translation because it describes the word, not the
+                // answer.
+                frequencyNote?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 // The sentence a tapped word came from is context for weighing prose; for one word the
@@ -728,6 +796,44 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                HorizontalDivider()
+            }
+            item {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Reading", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Shading counts the words of THIS book - no word list, nothing sent anywhere, " +
+                            "and no word excluded.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Text("Shade word frequency", fontWeight = FontWeight.Medium)
+                        Text(
+                            "Words this book keeps repeating stay solid; words it barely uses fade. " +
+                                "A faint word is one not worth learning yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = settings.wordShading,
+                        onCheckedChange = { onSettings(settings.copy(wordShading = it)) },
+                    )
                 }
                 HorizontalDivider()
             }

@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
         // Cheap: one small file read, the same one App does a moment later.
         Appearance.apply(Store.loadSettings(this).theme)
         setContent {
-            BookReaderTheme(Appearance.mode) {
+            BookReaderTheme {
                 Surface(modifier = Modifier.fillMaxSize()) { App() }
             }
         }
@@ -237,6 +237,27 @@ fun App() {
     } else {
         val book = parsed!!
         val rows = remember(book, lang, abbreviations) { buildRows(book, lang, abbreviations) }
+        /**
+         * How often each word recurs in this book, counted once when it opens.
+         *
+         * Off the main thread: a novel is ~80,000 tokens and this walks every one of them. It counts
+         * only the blocks the reader would translate, so a German novel's English front matter - and
+         * a graded reader's inline English glossary - cannot pollute the bands with English words.
+         *
+         * Null until it lands, so the first frames render unshaded. Counted from the book rather
+         * than from what is on screen: shading that depended on the viewport would change as the
+         * reader scrolled, and the bands are a property of the book.
+         */
+        var frequency by remember(book, lang) { mutableStateOf<WordFrequency?>(null) }
+        LaunchedEffect(book, lang) {
+            frequency = withContext(Dispatchers.Default) {
+                val texts = book.chapters
+                    .flatMap { ch -> ch.blocks }
+                    .filter { translationOffered(lang, it.lang) }
+                    .map { bl -> bl.text }
+                WordFrequency.of(texts)
+            }
+        }
 
         // Tap a unit -> its translation, cached by key so re-tapping is free. The unit is
         // one sentence (extendable by "Translate more"), or a whole paragraph for headings
@@ -389,6 +410,9 @@ fun App() {
             },
             onSentenceTap = onSentenceTap,
             onWordTap = onWordTap,
+            // The counts are always taken (the word modal needs them), but the page is only shaded
+            // when the reader asked for it - so the toggle costs nothing but a tint.
+            frequency = if (settings.wordShading) frequency else null,
             onProgress = { lastIndex = it },
             onBack = closeBook,
         )
@@ -415,6 +439,9 @@ fun App() {
                 },
                 context = tapContext,
                 pair = languagePair(tapLang),
+                // Only a word carries its frequency: on a sentence the equivalent line would have to
+                // describe a whole span of words at once, which is a summary, not a fact.
+                frequencyNote = if (word) frequency?.describe(tapSource) else null,
                 // Provenance only when it is NOT what the reader chose: if OpenRouter was selected and
                 // ML Kit answered instead, that is worth knowing. When the chosen engine answered,
                 // naming it and its model is just noise on top of the translation - the reader said so,

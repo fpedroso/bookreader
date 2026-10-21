@@ -56,6 +56,13 @@ data class AppSettings(
      * deliberate choice rather than something inherited from the phone.
      */
     val theme: String = ThemeMode.DARK.id,
+    /**
+     * Shade each word on the reading page by how often the book being read repeats it.
+     *
+     * Off by default, and that is deliberate: it is a reading aid the reader has to want. The
+     * counts it needs are taken per book, from that book alone (see [WordFrequency]).
+     */
+    val wordShading: Boolean = false,
 )
 
 /** Plain-file library: no database dependency for v1. */
