@@ -97,6 +97,18 @@ still cannot be downgraded to plain HTTP.
   (`usw.`, `etc.`) merges those sentences into one translation unit — the reader's call, and the tests
   pin both sides of it.
 
+- **Light and dark are the same design, twice.** Every colour the reader uses is a MaterialTheme
+  role — page, sentence borders, inline chips, dialogs — so a theme change is a scheme swap and
+  nothing else. `Theme.kt` holds stock `darkColorScheme()` and `lightColorScheme()`, picked by a
+  `ThemeMode` (Dark, Light, Follow the system) stored as a string id in `settings.json`; an unknown
+  or missing id reads back as the default rather than failing, so a settings file written before the
+  setting existed keeps its key, model and endpoint. The choice lives in `Appearance`, above the
+  theme call — which is where it has to be, because Settings renders *inside* `App`, below that
+  call, so the value needs a home over both. It is applied from disk before the first frame, so
+  startup never flashes the wrong palette, and again whenever Settings saves, so switching
+  recolours the app without a restart. Two hand-rolled palettes were rejected before this one; both
+  stock schemes are the answer to that, not a third guess.
+
 ## Build
 
 Requirements: JDK 17+ (Temurin 21 used here), Android SDK with **platform android-35** and
