@@ -14,13 +14,14 @@ import kotlin.math.roundToInt
  * Counting is case-insensitive: German capitalises every noun, so `Der` at the start of a sentence
  * and `der` inside one are one word, not two. The cost is that a capitalised noun and a lowercase
  * verb with the same letters (`Essen`/`essen`) merge - accepted, because the alternative splits the
- * commonest words in the language in half.
+ * commonest words in the language in half. Counting is on exact FORMS: there is no lemmatiser here,
+ * so `ging` and `geht` are counted, and shaded, separately even though both are `gehen`.
  *
- * The bands are a GEOMETRIC LADDER anchored on the book's own length, not fixed counts. Fixed
- * counts were measured first and break on a novel: 12+/5-11/2-4/1 puts 77% of an 80,000-word book's
- * page in the top band, one flat wash. Anchoring the top cut to the book's length keeps the page
- * mix stable instead - measured across seven German books from 8,500 to 80,000 words, the bands
- * land at 27-40 / 8-16 / 11-19 / 34-44 percent of the running text every time.
+ * Five bands, from a ladder anchored on the book's own length rather than fixed counts. Fixed counts
+ * were measured first and break on a novel: 12+/5-11/2-4/1 puts 77% of an 80,000-word book's page in
+ * the top band, one flat wash. Anchored, the page mix holds across seven German books from 8,500 to
+ * 80,000 words - 37 / 10 / 12 / 20 / 21 percent of the running text on an 80,000-word novel, and
+ * 38 / 16 / 12 / 21 / 14 on an 11,000-word one.
  *
  * The ladder was NOT cut on cumulative text share, and it must never be: that was tried and
  * collapses, because the share keeps climbing while you walk the once-only words, so the third cut
@@ -35,8 +36,10 @@ class WordFrequency private constructor(
     val constantAt: Int,
     /** ... "frequent". */
     val frequentAt: Int,
-    /** ... "occasional". Everything below is [Band.RARE]. */
+    /** ... "occasional". */
     val occasionalAt: Int,
+    /** ... "uncommon". Everything below this is [Band.RARE], the faintest. */
+    val uncommonAt: Int,
 ) {
 
     /** Occurrences of [word] in this book, 0 when it never appears. */
@@ -56,6 +59,7 @@ class WordFrequency private constructor(
         count >= constantAt -> Band.CONSTANT
         count >= frequentAt -> Band.FREQUENT
         count >= occasionalAt -> Band.OCCASIONAL
+        count >= uncommonAt -> Band.UNCOMMON
         else -> Band.RARE
     }
 
@@ -75,21 +79,30 @@ class WordFrequency private constructor(
         return if (total == 0) 0.0 else n.toDouble() / total
     }
 
+    /** The four cuts, most frequent first. Everything below [rare] is [Band.RARE]. */
+    data class Cuts(val constant: Int, val frequent: Int, val occasional: Int, val rare: Int)
+
     companion object {
 
         /**
-         * The ladder: the top cut is "about once per 250 words of this book", each band below it
-         * about 2.5x wider. Reproduces roughly 12/5/2 on a short children's book (13/5/2 at 3,171
-         * words - the floor only bites below 3,000) and 321/128/51 at 80,000.
+         * The ladder: the top cut is "about once per 250 words of this book", and each band below it
+         * is about 2.5x wider - except the LAST step, which is a fifth.
          *
-         * The floor of 12 keeps a very short text from producing a top band of three words; 2 is
-         * the floor for the bottom cut, because "occasional" has to mean at least a second sighting.
+         * That last step is tighter deliberately, and it was settled by reading real pages rather
+         * than by taste. At 2.5 the two bottom bands come out lopsided on a novel (28% of the page
+         * against 12% of it) and, worse, a word read eighteen times shares a tone with one read
+         * twice - exactly the distinction a fifth band exists to draw.
+         *
+         * Reproduces roughly 12/5/2/2 on a short children's book and 321/128/51/10 at 80,000 words.
+         * The floors keep a very short text from producing a top band of three words, and keep
+         * "occasional" from meaning a single sighting.
          */
-        fun cuts(total: Int): Triple<Int, Int, Int> {
+        fun cuts(total: Int): Cuts {
             val t1 = maxOf(12, (total / 250f).roundToInt())
             val t2 = maxOf(3, (t1 / 2.5f).roundToInt())
             val t3 = maxOf(2, (t2 / 2.5f).roundToInt())
-            return Triple(t1, t2, t3)
+            val t4 = maxOf(2, (t3 / 5f).roundToInt())
+            return Cuts(t1, t2, t3, t4)
         }
 
         /** Count [blocks] - the book's prose, already filtered to the text worth counting. */
@@ -104,14 +117,19 @@ class WordFrequency private constructor(
                     total++
                 }
             }
-            val (t1, t2, t3) = cuts(total)
-            return WordFrequency(counts, total, t1, t2, t3)
+            val c = cuts(total)
+            return WordFrequency(counts, total, c.constant, c.frequent, c.occasional, c.rare)
         }
     }
 }
 
-/** How often a word recurs in the book being read. Ordered most to least frequent. */
-enum class Band { CONSTANT, FREQUENT, OCCASIONAL, RARE }
+/**
+ * How often a word recurs in the book being read, most to least frequent.
+ *
+ * [CONSTANT] is the band the reader paints NOTHING for - see `wordTint`. The other four fade, one
+ * step each, with [RARE] the faintest.
+ */
+enum class Band { CONSTANT, FREQUENT, OCCASIONAL, UNCOMMON, RARE }
 
 /** One word's span inside a rendered sentence, and the band it is in. */
 data class ShadedSpan(val start: Int, val end: Int, val band: Band)

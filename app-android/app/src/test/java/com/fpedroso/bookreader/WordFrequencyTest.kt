@@ -36,40 +36,104 @@ class WordFrequencyTest {
         return WordFrequency.of(listOf(words.joinToString(" ")))
     }
 
+    /**
+     * 8,000 words, with one word planted in each of the five bands.
+     *
+     * Sized so that every band is reachable: the ladder gives 32/13/5/2 here, and that is the
+     * smallest text where the bottom two cuts differ from each other at all. In a 100-word text both
+     * land on 2, so the fifth band does not exist yet - which is the honest behaviour, and the reason
+     * a short book splits its tail at "seen once" instead.
+     */
+    private fun wide(): WordFrequency {
+        val words = buildList {
+            repeat(40) { add("Hund") } // 32+ -> constant
+            repeat(20) { add("Katze") } // 13-31 -> frequent
+            repeat(8) { add("Maus") } // 5-12 -> occasional
+            repeat(3) { add("Esel") } // 2-4 -> uncommon
+            repeat(1) { add("Elefant") } // 1 -> rare
+            repeat(7_928) { add("und") } // filler, itself constant
+        }
+        return WordFrequency.of(listOf(words.joinToString(" ")))
+    }
+
     // ------------------------------------------------------------------ the ladder
 
     @Test
     fun theCutComesFromTheBooksLength() {
         // Measured values from the seven German books, so a change to the constants is a change to
         // numbers that were checked against real text.
-        assertEquals(Triple(321, 128, 51), WordFrequency.cuts(80_147)) // Harry Potter
-        assertEquals(Triple(46, 18, 7), WordFrequency.cuts(11_494)) // Ahoi aus Hamburg
-        assertEquals(Triple(63, 25, 10), WordFrequency.cuts(15_777)) // Walzer in Wien
+        assertEquals(
+            WordFrequency.Cuts(constant = 321, frequent = 128, occasional = 51, rare = 10),
+            WordFrequency.cuts(80_147), // Harry Potter
+        )
+        assertEquals(
+            WordFrequency.Cuts(constant = 46, frequent = 18, occasional = 7, rare = 2),
+            WordFrequency.cuts(11_494), // Ahoi aus Hamburg
+        )
+        assertEquals(
+            WordFrequency.Cuts(constant = 63, frequent = 25, occasional = 10, rare = 2),
+            WordFrequency.cuts(15_777), // Walzer in Wien
+        )
+    }
+
+    @Test
+    fun theLastStepIsTighterSoEighteenAndTwoAreNotTheSameTone() {
+        // The whole reason a fifth band exists: on a novel, `sogar` (18x) and `behauptete` (2x) have
+        // to land in different bands. A 2.5 last step would cut at 20 and put both in the bottom one.
+        val c = WordFrequency.cuts(80_147)
+        assertEquals(10, c.rare)
+        val f = wide()
+        assertTrue(f.bandAt(18) != f.bandAt(2))
     }
 
     @Test
     fun aShortTextKeepsASensibleTopBand() {
-        // The floor: a 3,000-word book would otherwise have a top band of about twelve words, which
-        // is the one case where the ladder alone is too fine a comb.
-        assertEquals(Triple(12, 5, 2), WordFrequency.cuts(1_200))
-        assertEquals(Triple(12, 5, 2), WordFrequency.cuts(2_400))
+        // The floors: a 3,000-word book would otherwise have a top band of about twelve words, which
+        // is the one case where the ladder alone is too fine a comb. Note the bottom two cuts meet at
+        // 2 there, so a short book has no fifth tone to give until it is long enough to need one.
+        assertEquals(
+            WordFrequency.Cuts(constant = 12, frequent = 5, occasional = 2, rare = 2),
+            WordFrequency.cuts(1_200),
+        )
+        assertEquals(
+            WordFrequency.Cuts(constant = 12, frequent = 5, occasional = 2, rare = 2),
+            WordFrequency.cuts(2_400),
+        )
         // And the honest word on the claim: at 3,171 words the ladder gives 13, not 12 - the floor
         // stops applying just above 3,000. One word in the top band differs; the band is still the
         // ~40 words the measurement promised, not the 12 the round-number version suggested.
-        assertEquals(Triple(13, 5, 2), WordFrequency.cuts(3_171))
+        assertEquals(
+            WordFrequency.Cuts(constant = 13, frequent = 5, occasional = 2, rare = 2),
+            WordFrequency.cuts(3_171),
+        )
     }
 
     @Test
     fun bandsUseTheCutInclusiveOfItsBoundary() {
-        val f = sample()
-        assertEquals(Triple(12, 5, 2), Triple(f.constantAt, f.frequentAt, f.occasionalAt))
-        assertEquals(Band.CONSTANT, f.bandAt(12))
-        assertEquals(Band.FREQUENT, f.bandAt(11))
-        assertEquals(Band.FREQUENT, f.bandAt(5))
-        assertEquals(Band.OCCASIONAL, f.bandAt(4))
-        assertEquals(Band.OCCASIONAL, f.bandAt(2))
+        val f = wide()
+        assertEquals(32, f.constantAt)
+        assertEquals(13, f.frequentAt)
+        assertEquals(5, f.occasionalAt)
+        assertEquals(2, f.uncommonAt)
+        assertEquals(Band.CONSTANT, f.bandAt(32))
+        assertEquals(Band.FREQUENT, f.bandAt(31))
+        assertEquals(Band.FREQUENT, f.bandAt(13))
+        assertEquals(Band.OCCASIONAL, f.bandAt(12))
+        assertEquals(Band.OCCASIONAL, f.bandAt(5))
+        assertEquals(Band.UNCOMMON, f.bandAt(4))
+        assertEquals(Band.UNCOMMON, f.bandAt(2))
         assertEquals(Band.RARE, f.bandAt(1))
         assertEquals(Band.RARE, f.bandAt(0))
+    }
+
+    @Test
+    fun fiveBandsAreReachableOnALongEnoughText() {
+        val f = wide()
+        assertEquals(Band.CONSTANT, f.bandOf("hund"))
+        assertEquals(Band.FREQUENT, f.bandOf("katze"))
+        assertEquals(Band.OCCASIONAL, f.bandOf("maus"))
+        assertEquals(Band.UNCOMMON, f.bandOf("esel"))
+        assertEquals(Band.RARE, f.bandOf("elefant"))
     }
 
     // ------------------------------------------------------------------ counting
@@ -117,8 +181,24 @@ class WordFrequencyTest {
         assertEquals(1, byBand.getValue(Band.CONSTANT))
         assertEquals(1, byBand.getValue(Band.FREQUENT))
         assertEquals(1, byBand.getValue(Band.OCCASIONAL))
+        // Empty on purpose: in a 100-word text the bottom two cuts both land on 2, so there is no
+        // band between them. A short book fades four tones in total, not five.
+        assertEquals(0, byBand.getValue(Band.UNCOMMON))
         assertEquals(63, byBand.getValue(Band.RARE))
         assertEquals(0.30, f.textShare(Band.CONSTANT), 0.0001)
+    }
+
+    @Test
+    fun aLongBookFillsEveryBand() {
+        val f = wide()
+        val byBand = Band.entries.associateWith { b -> f.counts.filterValues { f.bandAt(it) == b }.size }
+        assertEquals(f.counts.size, byBand.values.sum())
+        // hund and und are constant; then one word each in the bands below.
+        assertEquals(2, byBand.getValue(Band.CONSTANT))
+        assertEquals(1, byBand.getValue(Band.FREQUENT))
+        assertEquals(1, byBand.getValue(Band.OCCASIONAL))
+        assertEquals(1, byBand.getValue(Band.UNCOMMON))
+        assertEquals(1, byBand.getValue(Band.RARE))
     }
 
     @Test

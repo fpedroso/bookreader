@@ -112,17 +112,21 @@ still cannot be downgraded to plain HTTP.
 - **Word shading is book-local, and it fades the tail rather than tinting the core.** Counting is
   done per book, from that book alone: no word list, no download, no word excluded — so a character
   name that recurs is shaded like anything else, because "you will meet this again here" is then
-  exactly true. The bands come from a geometric ladder anchored on the book's own length
-  (`t1 = max(12, tokens/250)`, then ÷2.5, ÷2.5). Fixed counts were measured first and put **77% of an
-  80,000-word novel's page in the top band** — one flat wash; anchored to length the page mix sits at
-  27–40 / 8–16 / 11–19 / 34–44% across seven German books from 8,500 to 80,000 words. The **recurring**
-  words keep the ordinary text colour and the rare bands fade, because the recurring three are 56–66%
-  of the running text: tinting *those* would colour the majority of every page and leave the untinted
-  minority as the thing that stands out, which is backwards. Faint is still above 4:1 contrast, since
-  the tail is over a third of the page and has to be read, not merely noticed. Off by default; the word
-  modal states the raw count — *"appears 23× in this book"* — which is what gives four tones meaning on
-  a single word. Counted once when the book opens, off the main thread, over the blocks the reader
-  would translate, so a German novel's English front matter cannot pollute the bands.
+  exactly true. The five bands come from a ladder anchored on the book's own length
+  (`t1 = max(12, tokens/250)`, then ÷2.5, ÷2.5, and ÷5 for the last step). Fixed counts were measured
+  first and put **77% of an 80,000-word novel's page in the top band** — one flat wash; anchored to
+  length the page mix holds at 37 / 10 / 12 / 20 / 21 percent of the running text on that novel and
+  38 / 16 / 12 / 21 / 14 on an 11,000-word book. The last step is tighter deliberately: at ÷2.5 the
+  two bottom bands come out lopsided (28% of the page against 12%) and a word read eighteen times
+  shares a tone with one read twice. The **recurring** words keep the ordinary text colour and the
+  rarer bands fade, because the recurring bands are 56–66% of the running text: tinting *those* would
+  colour the majority of every page and leave the untinted minority as the thing that stands out,
+  which is backwards. The four fade steps are evenly spaced per channel (~23 of 255), so the ramp is
+  gentle but legible, and the faintest stays above 4:1 against its page — that band is a fifth of the
+  text and has to be read, not merely noticed. Off by default; the word modal states the raw count —
+  *"appears 23× in this book"* — which is what gives five tones meaning on a single word. Counted once
+  when the book opens, off the main thread, over the blocks the reader would translate, so a German
+  novel's English front matter cannot pollute the bands.
 
 ## Build
 

@@ -457,14 +457,13 @@ private fun WordTapText(
     val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
 
     // Resolved here, outside buildAnnotatedString: reading the theme is a composable call and the
-    // annotated-string builder is not a composable scope.
-    val tints = mapOf(
-        Band.FREQUENT to wordTint(Band.FREQUENT),
-        Band.OCCASIONAL to wordTint(Band.OCCASIONAL),
-        Band.RARE to wordTint(Band.RARE),
-    )
+    // annotated-string builder is not a composable scope. Built from the enum rather than from a
+    // hand-written map of three bands - the hand-written version silently omitted UNCOMMON when the
+    // fifth band was added, and those words fell back to plain text.
+    val dark = isDarkTheme()
 
-    val annotated = remember(text, frequency, tints) {
+    val annotated = remember(text, frequency, dark) {
+        val tints = Band.entries.associateWith { tintFor(it, dark) }
         buildAnnotatedString {
             if (frequency == null) {
                 append(text)

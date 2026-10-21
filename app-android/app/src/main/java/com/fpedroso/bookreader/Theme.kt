@@ -91,28 +91,40 @@ fun BookReaderTheme(content: @Composable () -> Unit) {
 
 // Explicit colours, not an alpha on the text colour. An alpha low enough to read as "faint" over
 // near-black renders as a smudge rather than as information, and it compounds differently on each
-// background. Four fixed steps per theme instead, and the faintest step is still above 4:1 against
-// its page: the faint band is 34-44% of the running text, so it has to be READ, not just noticed.
-private val FADED_FREQUENT_DARK = Color(0xFFBDB6C6)
-private val FADED_OCCASIONAL_DARK = Color(0xFF97909F)
-private val FADED_RARE_DARK = Color(0xFF7E7886)
-private val FADED_FREQUENT_LIGHT = Color(0xFF3A3644)
-private val FADED_OCCASIONAL_LIGHT = Color(0xFF5C5764)
-private val FADED_RARE_LIGHT = Color(0xFF7B7684)
+// background. Four fixed steps per theme instead, evenly spaced: each theme's five bands are its
+// ordinary text colour plus these four, and every step is the same distance from its neighbour
+// (~23 per channel), so the page reads as a gentle ramp rather than as stripes. The faintest still
+// sits at 5.2:1 (dark) and 4.4:1 (light) against its page - that band is around a fifth of the
+// running text, so it has to be READ, not merely noticed.
+private val FADED_FREQUENT_DARK = Color(0xFFD0CAD7)
+private val FADED_OCCASIONAL_DARK = Color(0xFFB9B3C1)
+private val FADED_UNCOMMON_DARK = Color(0xFFA29CAB)
+private val FADED_RARE_DARK = Color(0xFF8B8595)
+private val FADED_FREQUENT_LIGHT = Color(0xFF34313A)
+private val FADED_OCCASIONAL_LIGHT = Color(0xFF4B4852)
+private val FADED_UNCOMMON_LIGHT = Color(0xFF625F6A)
+private val FADED_RARE_LIGHT = Color(0xFF797682)
 
 /**
- * The colour for a word in [band], or null to leave it in the page's ordinary text colour.
+ * The colour for [band] on a dark or light page, or null to leave it alone.
  *
- * **CONSTANT returns null, and that is the design.** The words a book repeats most are 27-40% of
- * its running text, so tinting THEM would colour the majority of every page and leave the untinted
- * minority as the thing that stands out - exactly backwards. What shading does is FADE THE TAIL:
- * words the book barely uses recede, and the recurring core reads as the solid text. It also keeps
- * most of a page at full contrast, which is the version a person can actually read for an hour.
+ * **Pure, and deliberately not composable**, so a test can assert the invariants the reader depends
+ * on: every band except [Band.CONSTANT] has a colour, no two steps are the same, they get fainter in
+ * order, and the faintest one still has readable contrast. A missing colour is not a cosmetic
+ * problem - the word silently falls back to ordinary text and reads as a word that repeats
+ * constantly, which is what happened when the fifth band was added.
  */
-@Composable
-fun wordTint(band: Band): Color? = when (band) {
+fun tintFor(band: Band, dark: Boolean): Color? = when (band) {
+    // The band that repeats most is the page's ordinary text, deliberately: it is 30-40% of the
+    // running text, so tinting it would colour the majority of every page and leave the untinted
+    // minority as the thing that stands out. What shading does is FADE THE TAIL.
     Band.CONSTANT -> null
-    Band.FREQUENT -> if (isDarkTheme()) FADED_FREQUENT_DARK else FADED_FREQUENT_LIGHT
-    Band.OCCASIONAL -> if (isDarkTheme()) FADED_OCCASIONAL_DARK else FADED_OCCASIONAL_LIGHT
-    Band.RARE -> if (isDarkTheme()) FADED_RARE_DARK else FADED_RARE_LIGHT
+    Band.FREQUENT -> if (dark) FADED_FREQUENT_DARK else FADED_FREQUENT_LIGHT
+    Band.OCCASIONAL -> if (dark) FADED_OCCASIONAL_DARK else FADED_OCCASIONAL_LIGHT
+    Band.UNCOMMON -> if (dark) FADED_UNCOMMON_DARK else FADED_UNCOMMON_LIGHT
+    Band.RARE -> if (dark) FADED_RARE_DARK else FADED_RARE_LIGHT
 }
+
+/** [tintFor] under the current theme. */
+@Composable
+fun wordTint(band: Band): Color? = tintFor(band, isDarkTheme())
