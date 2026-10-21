@@ -70,6 +70,9 @@ object Pages {
                         end = end,
                         height = result.getLineBottom(line) - top,
                         gapAbove = if (line == 0) metrics.gapBefore(row.heading) else 0f,
+                        // Only the first line of a row can open a chapter: a wrapped continuation of
+                        // a chapter's first paragraph is not itself a chapter start.
+                        breakBefore = line == 0 && row.chapterStart,
                     ),
                 )
             }

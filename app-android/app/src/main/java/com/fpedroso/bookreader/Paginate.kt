@@ -23,6 +23,11 @@ data class MeasuredLine(
     val height: Float,
     /** The paragraph or heading gap that must precede it; 0 for a wrapped continuation line. */
     val gapAbove: Float,
+    /**
+     * This line begins a chapter, so it begins a PAGE - the page is closed early rather than
+     * letting a chapter start halfway down. False for wrapped continuation lines.
+     */
+    val breakBefore: Boolean = false,
 )
 
 /**
@@ -72,7 +77,9 @@ object Paginate {
             val first = page.isEmpty()
             // The leading gap is dropped at the top of a page, and only there.
             val gap = if (first) 0f else line.gapAbove
-            if (!first && used + gap + line.height > pageHeight) {
+            // A chapter break closes the page early; so does a line that would not fit. On an empty
+            // page neither applies, which is what stops a break from ever producing a blank page.
+            if (!first && (line.breakBefore || used + gap + line.height > pageHeight)) {
                 out.add(page)
                 page = ArrayList()
                 used = 0f
@@ -158,8 +165,19 @@ data class LayoutSignature(
     val headGapBottomPx: Float,
     val headLinePx: Float,
 ) {
+    companion object {
+        /**
+         * Bumped whenever the RULES of pagination change, so a page map measured by an older build
+         * cannot be reused as if it were current.
+         *
+         * 2: chapters start on a new page. Without this the cache would keep serving the old breaks
+         * after the feature shipped, and the change would look like it had not worked.
+         */
+        const val VERSION = 2
+    }
+
     /** A stable id for a cache file name, and for noticing that a reflow is needed. */
     fun id(): String = listOf(
-        widthPx, heightPx, bodyPx, linePx, paraGapPx, headGapTopPx, headGapBottomPx, headLinePx,
+        VERSION, widthPx, heightPx, bodyPx, linePx, paraGapPx, headGapTopPx, headGapBottomPx, headLinePx,
     ).joinToString("-") { it.toInt().toString() }
 }

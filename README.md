@@ -154,6 +154,19 @@ never push text onto the next page.
 long press resolves to a word exactly as it did before pagination existed, and the reading anchor is
 independent of where the breaks fell.
 
+**Chapters start a page.** A page is closed early where a chapter opens, so a chapter never begins
+halfway down. "A chapter opens" is two rules together, because the books disagree about which one
+carries the structure: a new document in the spine, **or** a chapter-level heading (`<h1>`/`<h2>`) in
+the body. HP1 (de) is one file per chapter with an `<h2>` title inside each, so the two agree — 604
+pages became 612. Max und Moritz and Struwwelpeter are **one file each**, so only the headings mark the
+stories — 45 pages became 51. The Chinese reader is 34 files with no headings at all, so only the
+documents mark anything. The `<h3>`s inside a story are sections and deliberately do NOT break: starting
+a page for each would shred the prose. Ebook apparatus (Gutenberg's boilerplate `<h2>`s) breaks too,
+which is why a title page can sit alone on a page — harmless, and the price of not special-casing one
+publisher's plumbing. `LayoutSignature.VERSION` exists so a page map measured under the old rules
+cannot be reused; **bump it whenever the rules change**, or the cache serves stale breaks and the change
+looks like it did not work.
+
 **The position is a place, not a page number.** `BookMeta` stores a block, an offset inside it and the
 block's hash. A page number stops meaning anything the moment the text reflows; `Paginate.pageOf`
 derives the page from the anchor on every open, and the hash is the part that survives the book being

@@ -44,7 +44,29 @@ object EpubParser {
      * part of it: a German novel's front matter is routinely English, and sending that prose
      * to the German model translates nothing and says nothing.
      */
-    data class Block(val text: String, val heading: Boolean, val lang: String? = null)
+    data class Block(
+        val text: String,
+        val heading: Boolean,
+        val lang: String? = null,
+        /**
+         * 1-6 for an `<h1>`-`<h6>`, 0 for prose.
+         *
+         * Kept alongside [heading] rather than replacing it because the two answer different
+         * questions: `heading` means "set this apart as a title" at any level, while the LEVEL is
+         * what says whether a chapter starts here. A book's chapter title is an `<h1>` or `<h2>`;
+         * an `<h3>` inside a story is a section, and starting a page for each of those would shred
+         * the prose it belongs to.
+         */
+        val level: Int = 0,
+    ) {
+        /**
+         * Whether a chapter opens at this block, as far as the BODY can tell.
+         *
+         * Not the whole rule: a new spine document opens a chapter too, and some books signal
+         * chapters that way alone (see `buildRows`, where the two are combined).
+         */
+        val chapterLevel: Boolean get() = heading && level in 1..2
+    }
 
     /**
      * The blocks of one document in the spine.
@@ -139,7 +161,7 @@ object EpubParser {
         // child. With a single buffer, `</h2>` tore down the body's collector and the prose
         // after it was lost - which is why a real EPUB whose prose is bare text inside
         // <body> still showed only its headings, even after the extractor was "fixed".
-        class Frame(val depth: Int, val heading: Boolean, val lang: String?) {
+        class Frame(val depth: Int, val heading: Boolean, val lang: String?, val level: Int) {
             val sb = StringBuilder()
         }
         val stack = ArrayList<Frame>()
@@ -160,7 +182,7 @@ object EpubParser {
                 .replace(BREAK_PAD, "\n")
                 .replace(BREAK_RUN, "\n")
                 .trim()
-            if (t.isNotEmpty()) blocks.add(Block(t, f.heading, f.lang))
+            if (t.isNotEmpty()) blocks.add(Block(t, f.heading, f.lang, f.level))
             f.sb.setLength(0)
         }
 
@@ -184,8 +206,15 @@ object EpubParser {
                         // Flush the parent's own text before the child takes over, so
                         // `<body> A <p></p> B </body>` yields "A" then "B".
                         flushTop()
-                        val heading = name.length == 2 && name[0] == 'h' && name[1] in '1'..'6'
-                        stack.add(Frame(depth, heading, langs.lastOrNull()?.second))
+                        // The LEVEL, not merely "is a heading": an h1/h2 opens a chapter and the
+                        // paged reader starts a page there, while an h3 inside a story is a section.
+                        // Both are still drawn as titles.
+                        val level = if (name.length == 2 && name[0] == 'h' && name[1] in '1'..'6') {
+                            name[1] - '0'
+                        } else {
+                            0
+                        }
+                        stack.add(Frame(depth, level > 0, langs.lastOrNull()?.second, level))
                     }
                 }
                 XmlPullParser.TEXT -> {

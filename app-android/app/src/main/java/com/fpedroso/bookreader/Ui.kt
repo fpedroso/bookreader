@@ -226,6 +226,15 @@ data class RowItem(
      * but German, and for an English block inside a German one.
      */
     val translatable: Boolean = false,
+    /**
+     * Whether a page starts here. A new spine document, or a chapter-level `<h1>`/`<h2>` in the
+     * body - resolved in `buildRows`, because the two rules are needed together: some books are one
+     * document per chapter with an `<h2>` title (both agree), some are one single document where
+     * only the headings mark the chapters, and some are many documents with no headings at all.
+     *
+     * Only the paged reader uses it, to begin every chapter on a fresh page.
+     */
+    val chapterStart: Boolean = false,
 ) {
     /**
      * A heading or a stanza: a block that is its own translation unit because it has no sentences to

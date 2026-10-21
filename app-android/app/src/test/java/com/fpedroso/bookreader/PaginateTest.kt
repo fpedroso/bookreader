@@ -17,7 +17,8 @@ class PaginateTest {
         end: Int,
         height: Float = 10f,
         gapAbove: Float = 0f,
-    ) = MeasuredLine(block, start, end, height, gapAbove)
+        breakBefore: Boolean = false,
+    ) = MeasuredLine(block, start, end, height, gapAbove, breakBefore)
 
     /** Three 10px lines of block 0 with a 5px paragraph gap before the first. */
     private fun para(block: Int, from: Int = 0, lines: Int = 3, gap: Float = 5f): List<MeasuredLine> {
@@ -131,6 +132,44 @@ class PaginateTest {
         assertTrue(base.id() != base.copy(widthPx = 720).id())
         assertTrue(base.id() != base.copy(heightPx = 1080).id())
         assertTrue(base.id() != base.copy(paraGapPx = 28f).id())
+    }
+
+    @Test
+    fun `a chapter break closes the page early`() {
+        val lines = listOf(
+            line(0, 0, 10, 10f, 5f),
+            line(0, 10, 20, 10f),
+            // The third line opens a chapter, and there is room for all three.
+            line(0, 20, 30, 10f, breakBefore = true),
+        )
+        val pages = Paginate.pages(lines, 1000f)
+        assertEquals(2, pages.size)
+        assertEquals(2, pages[0].single().lines)
+        assertEquals(1, pages[1].single().lines)
+        // A chapter starting a page takes no leading gap, exactly like any other break.
+        assertEquals(0f, pages[1].first().gapAbove, 0.001f)
+        // And the text is not lost or repeated at the seam.
+        assertEquals(20, pages[0].single().end)
+        assertEquals(20, pages[1].single().start)
+    }
+
+    @Test
+    fun `a chapter break on an empty page does not leave it blank`() {
+        val lines = listOf(
+            line(0, 0, 10, 10f, breakBefore = true),
+            line(0, 10, 20, 10f),
+        )
+        val pages = Paginate.pages(lines, 1000f)
+        assertEquals(1, pages.size)
+        assertEquals(2, pages.single().single().lines)
+    }
+
+    @Test
+    fun `the cache id carries the pagination rule version`() {
+        val sig = LayoutSignature(1080, 1920, 44f, 66f, 20f, 40f, 10f, 56f)
+        // Bump LayoutSignature.VERSION when the rules change, or a stale page map keeps serving the
+        // old breaks and the change looks like it did not work.
+        assertTrue(sig.id().startsWith("${LayoutSignature.VERSION}-"))
     }
 
     @Test

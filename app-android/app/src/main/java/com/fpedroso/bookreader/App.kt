@@ -570,8 +570,14 @@ private fun buildRows(
     // No chapter-title row: the parser has no title to give one (see EpubParser.Chapter), and
     // the reader does not need it - a chapter announces itself with the <h1>-<h6> headings the
     // body already contains, which arrive here as heading blocks.
+    //
+    // A chapter STARTS at a new document in the spine, or at a chapter-level heading. Both rules,
+    // because the books disagree about which one carries the structure: HP1 is one file per chapter
+    // with an <h2> title in each (the two agree), Max und Moritz and Struwwelpeter are one file each
+    // so only the headings mark the stories, and the Chinese reader is 34 files with no headings at
+    // all so only the documents mark anything.
     for (ch in book.chapters) {
-        for (bl in ch.blocks) {
+        for ((index, bl) in ch.blocks.withIndex()) {
             // Every paragraph carries its block hash: it identifies the block and is the tap
             // target for the modal. (Translation keys are the hash of the UNIT's own text,
             // not this one - see translationKey.)
@@ -579,6 +585,9 @@ private fun buildRows(
                 RowItem(
                     text = bl.text,
                     heading = bl.heading,
+                    // The first block of a spine document opens a chapter, and so does a chapter-level
+                    // heading inside one.
+                    chapterStart = index == 0 || bl.chapterLevel,
                     hash = Annotations.key(bl.text),
                     // The block's own resolved language, so the tap translates with the
                     // language that block is actually written in.
