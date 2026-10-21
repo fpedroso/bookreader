@@ -700,6 +700,39 @@ fun SettingsScreen(
         LazyColumn(Modifier.padding(pad).fillMaxSize()) {
             item {
                 Column(Modifier.padding(16.dp)) {
+                    Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Light or dark. Applies as soon as it is picked.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(ThemeMode.entries.toList()) { m ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onSettings(settings.copy(theme = m.id)) }
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = ThemeMode.fromId(settings.theme) == m,
+                        onClick = { onSettings(settings.copy(theme = m.id)) },
+                    )
+                    Column(Modifier.padding(vertical = 8.dp)) {
+                        Text(m.label, fontWeight = FontWeight.Medium)
+                        Text(
+                            m.note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                HorizontalDivider()
+            }
+            item {
+                Column(Modifier.padding(16.dp)) {
                     Text("Translation engine", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Which engine translates a tapped word or sentence.",

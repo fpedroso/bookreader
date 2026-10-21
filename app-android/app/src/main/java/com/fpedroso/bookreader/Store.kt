@@ -49,6 +49,13 @@ data class AppSettings(
      * separated; a trailing dot is optional.
      */
     val abbreviations: String = Sentences.DEFAULT_ABBREVIATIONS,
+    /**
+     * Id of the chosen [ThemeMode]; an unknown or missing id reads back as the default.
+     *
+     * Dark by default: the reading surface has one intended look on a first run, and light is a
+     * deliberate choice rather than something inherited from the phone.
+     */
+    val theme: String = ThemeMode.DARK.id,
 )
 
 /** Plain-file library: no database dependency for v1. */

@@ -40,8 +40,11 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Applied before the first frame, so the window never flashes the wrong palette at startup.
+        // Cheap: one small file read, the same one App does a moment later.
+        Appearance.apply(Store.loadSettings(this).theme)
         setContent {
-            BookReaderTheme {
+            BookReaderTheme(Appearance.mode) {
                 Surface(modifier = Modifier.fillMaxSize()) { App() }
             }
         }
@@ -59,6 +62,10 @@ fun App() {
     // below nothing: it is reachable only from the library, so it cannot be open while reading.
     var settings by remember { mutableStateOf(Store.loadSettings(ctx)) }
     var showSettings by remember { mutableStateOf(false) }
+    // Settings is the only writer of the theme, and it is rendered inside this composable - below
+    // the theme call in MainActivity - so push the choice out to the shared state and the whole
+    // window recolours on the spot instead of after a restart.
+    LaunchedEffect(settings.theme) { Appearance.apply(settings.theme) }
     // The engine actually used. Resolved rather than derived from the stored id: a local model has to
     // be both runnable and ON THE DEVICE, and either can change while the app runs, so this is
     // recomputed whenever Settings closes.
