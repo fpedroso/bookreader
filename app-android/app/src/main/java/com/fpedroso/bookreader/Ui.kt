@@ -184,15 +184,18 @@ private fun flagFor(lang: String): String? {
 // A heading gets a wider gap than a paragraph, plus a little space below, so the title is
 // set off on both sides. Size and weight alone separate it from the prose; nothing here is
 // boxed or tinted, because the reading view is deliberately frame-free.
-private val PARA_GAP = 20.dp
-private val HEAD_GAP_TOP = 40.dp
-private val HEAD_GAP_BOTTOM = 10.dp
+// The numbers themselves live in [ReaderType], because the paged reader MEASURES with them: a page
+// break depends on exactly these heights, so the scroll view and the measurer must not be able to
+// disagree about them.
+private val PARA_GAP = ReaderType.PARA_GAP
+private val HEAD_GAP_TOP = ReaderType.HEAD_GAP_TOP
+private val HEAD_GAP_BOTTOM = ReaderType.HEAD_GAP_BOTTOM
 
 // The page's text inset, on every block - heading and body alike - so the whole book keeps ONE left
 // edge. It used to be the padding INSIDE the sentence band; the band is gone at the reader's request
 // but the margin stayed, because without it the prose would slide under the headings' left edge and
 // the column would read as ragged.
-private val TEXT_INSET = 6.dp
+private val TEXT_INSET = ReaderType.TEXT_INSET
 
 // ------------------------------------------------------------------- reader
 
@@ -321,9 +324,11 @@ fun ReaderScreen(
                         fontSize = if (row.heading) MaterialTheme.typography.titleLarge.fontSize else 19.sp,
                         lineHeight = if (row.heading) MaterialTheme.typography.titleLarge.lineHeight else 30.sp,
                         weight = if (row.heading) FontWeight.SemiBold else null,
-                        // Deliberately NOT shaded on a heading: a faded word inside a title reads as a
-                        // rendering fault rather than as information about the book.
-                        frequency = if (row.heading) null else frequency,
+                        // Not shaded on a heading, or on a block whose words were never counted: a
+                        // faded word inside a title reads as a rendering fault, and an English block
+                        // inside a German book has no band of its own - its words would all come
+                        // back "rare" against counts that were taken from the German text.
+                        frequency = if (row.heading || !row.translatable) null else frequency,
                         modifier = Modifier.padding(
                             start = TEXT_INSET,
                             end = TEXT_INSET,
@@ -744,6 +749,34 @@ fun SettingsScreen(
                     Switch(
                         checked = settings.wordShading,
                         onCheckedChange = { onSettings(settings.copy(wordShading = it)) },
+                    )
+                }
+                HorizontalDivider()
+            }
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Text("Use scroll instead of pages", fontWeight = FontWeight.Medium)
+                        Text(
+                            "Off, the book is paginated: a tap on the right third goes forward, the left " +
+                                "third back, and the page count sits under the text. A word is asked about " +
+                                "with a LONG press. Turn this on to scroll instead.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = settings.useScroll,
+                        onCheckedChange = { onSettings(settings.copy(useScroll = it)) },
                     )
                 }
                 HorizontalDivider()

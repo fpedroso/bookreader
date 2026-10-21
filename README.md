@@ -11,14 +11,19 @@ the words and sentences you can't.
 
 1. **Import** an EPUB (single-file picker). The file is copied into app storage and recorded
    in a small JSON manifest (`Store.kt`).
-2. **Read** it as prose. Blocks come from `EpubParser` in `Epub.kt` — OPF spine order, and a
-   stack of block collectors so a container's own text is a block in its own right. The
-   reading view is continuous scrolling by design: there is no pagination, and a paragraph is
-   laid out the way the EPUB wrote it — no invented line breaks, no per-sentence furniture.
+2. **Read** it as prose, a page at a time. Blocks come from `EpubParser` in `Epub.kt` — OPF spine
+   order, and a stack of block collectors so a container's own text is a block in its own right. The
+   page is measured from the text itself and cut at line breaks, so no word is ever split across two
+   pages, and the counter under it reads *3 of 604* — the book's own page count, see
+   [Pagination](#pagination). A paragraph is laid out the way the EPUB wrote it — no invented line
+   breaks, no per-sentence furniture.
 3. **Sentences** exist for the translator, not for the eye. `Sentences.kt` splits a paragraph so
    that **Translate more** knows which sentence a tapped word is in (`Sentences.enclosing`), and
    nothing on the page changes shape because of it.
-4. **Tap a word** for that word's translation alone (`Words.kt` finds the word under the tap). There
+4. **Long-press a word** for that word's translation alone (`Words.kt` finds the word under the
+   finger; the word is washed while it is held, and the wash layers *under* the frequency tint rather
+   than replacing it). In the scrolling view a tap is still the word — a tap only turns pages when the
+   book is paginated. There
    is **one modal for everything, titled Translation**: for a word it shows the word, the pair, how
    often that word recurs in this book, and the answer — plus **Translate more**, which grows the unit
    to the sentence the word sits in. That sentence is also folded into the request, because one word
@@ -128,6 +133,43 @@ still cannot be downgraded to plain HTTP.
   *"appears 23× in this book"* — which is what gives five tones meaning on a single word. Counted once
   when the book opens, off the main thread, over the blocks the reader would translate, so a German
   novel's English front matter cannot pollute the bands.
+
+## Pagination
+
+**Pages, by measurement, cut at line breaks.** `Paginate.kt` is the whole of the arithmetic, and it is
+pure — measured lines in, pages out, unit-tested with fake numbers. `Pages.kt` is the half that touches
+Compose: it walks the blocks, asks `TextMeasurer` how tall each one comes out, and the result is cached
+in `files/pages/` under a layout signature (`bookId-width-height-type…json`), so only a new book, a font
+change or a screen-size change ever pays for it again.
+
+The trap this design exists to avoid: `TextMeasurer.measure()` **with no constraints** lays text out at
+infinite width and reports nonsense — a documented case measured 25 lines across 30,154 px against 235
+real lines at 1,080 px. So the measurer is handed the page's own width, and — stronger — the measurer
+and the renderer share **the same `TextStyle` object** (`ReaderType`), because two sets of matching
+numbers drift apart and one shared object cannot. Each slice is then drawn with `maxLines` equal to the
+lines the page map allotted, and clipped: a measurement that came out short can hide an overflow but
+never push text onto the next page.
+
+**A page breaks at a line, never inside a word.** Slices carry the *block's* character offsets, so a
+long press resolves to a word exactly as it did before pagination existed, and the reading anchor is
+independent of where the breaks fell.
+
+**The position is a place, not a page number.** `BookMeta` stores a block, an offset inside it and the
+block's hash. A page number stops meaning anything the moment the text reflows; `Paginate.pageOf`
+derives the page from the anchor on every open, and the hash is the part that survives the book being
+imported again.
+
+**Gestures.** A tap turns the page — the right third forward, the left third back, and the middle
+rests, so a tap while reading does not move you. A word is asked about with a **long press**. Tap zones
+and the slice-to-block mapping are pure functions with tests (`zoneTurn`, `blockWord`), because those
+are exactly the things that fail silently.
+
+**Cost, measured.** Paginating all 604 pages of an 80,000-word novel from cold takes ~12–18 s on the
+emulator's software-rendered CPU — once, and cached after that. Nothing else about the reader knows
+pagination exists: the word machinery, the frequency bands and the translation engines are untouched,
+and `ReaderScreen` (scrolling) and `PagedReader` are separate files, so either can be deleted without
+the other noticing. Settings → Reading → *Use scroll instead of pages*, **off by default**, is the way
+back.
 
 ## Build
 

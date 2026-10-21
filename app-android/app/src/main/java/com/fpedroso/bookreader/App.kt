@@ -113,6 +113,10 @@ fun App() {
     var translateError by remember { mutableStateOf<String?>(null) }
     var translations by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var lastIndex by remember { mutableStateOf(0) }
+    // Where in that block reading stopped, and the block's hash. Both are what make the position
+    // survive a font change and a re-import: a page number survives neither.
+    var lastOffset by remember { mutableStateOf(0) }
+    var lastHash by remember { mutableStateOf<String?>(null) }
     var lastTransPersist by remember { mutableStateOf(0L) }
 
     val picker = rememberLauncherForActivityResult(
@@ -156,7 +160,7 @@ fun App() {
     val closeBook: () -> Unit = {
         val b = openBook
         if (b != null) {
-            Store.setProgress(ctx, b.id, lastIndex)
+            Store.setProgress(ctx, b.id, lastIndex, lastOffset, lastHash)
             val tr = translations
             if (tr.isNotEmpty()) {
                 scope.launch { withContext(Dispatchers.IO) { persistTranslations(ctx, b.id, tr) } }
@@ -193,7 +197,7 @@ fun App() {
                 // Written synchronously: ON_STOP gives a short window, and a coroutine on
                 // another dispatcher is not guaranteed to finish before the process goes away.
                 // Both calls are plain blocking IO, which is what makes this possible.
-                Store.setProgress(ctx, b.id, lastIndex)
+                Store.setProgress(ctx, b.id, lastIndex, lastOffset, lastHash)
                 val tr = translations
                 if (tr.isNotEmpty()) persistTranslations(ctx, b.id, tr)
             }
@@ -391,26 +395,65 @@ fun App() {
             )
         }
 
-        ReaderScreen(
-            title = current.title,
-            rows = rows,
-            initialIndex = current.lastBlock,
-            selectedKey = tapKey,
-            onParagraphTap = { para ->
-                // A heading or a stanza: the block is the unit, and there are no sentences inside it
-                // to grow into, so nothing is held for "Translate more".
-                tapRow = null
-                tapIsWord = false
-                tapContext = null
-                openTranslation(unitKey(engine, para.text, model = settings.apiModel), para.text, para.lang)
-            },
-            onWordTap = onWordTap,
-            // The counts are always taken (the word modal needs them), but the page is only shaded
-            // when the reader asked for it - so the toggle costs nothing but a tint.
-            frequency = if (settings.wordShading) frequency else null,
-            onProgress = { lastIndex = it },
-            onBack = closeBook,
-        )
+        // A heading or a stanza: the block is the unit, and there are no sentences inside it to grow
+        // into, so nothing is held for "Translate more". Shared by both reading modes - the unit is
+        // the same thing whether the page turns or scrolls.
+        val openBlock: (RowItem) -> Unit = { para ->
+            tapRow = null
+            tapIsWord = false
+            tapContext = null
+            openTranslation(unitKey(engine, para.text, model = settings.apiModel), para.text, para.lang)
+        }
+
+        // What to open on. The hash is preferred when there is one: a row index is only meaningful
+        // against the exact text it was recorded from, and a book imported again can shift them all.
+        val anchorBlock = current.anchorHash
+            ?.let { hash -> rows.indexOfFirst { it.hash == hash } }
+            ?.takeIf { it >= 0 }
+            ?: current.lastBlock.coerceIn(0, (rows.size - 1).coerceAtLeast(0))
+
+        // The counts are always taken (the word modal needs them), but the page is only shaded when
+        // the reader asked for it - so the toggle costs nothing but a tint.
+        val shading = if (settings.wordShading) frequency else null
+
+        if (settings.useScroll) {
+            ReaderScreen(
+                title = current.title,
+                rows = rows,
+                initialIndex = anchorBlock,
+                selectedKey = tapKey,
+                onParagraphTap = openBlock,
+                onWordTap = onWordTap,
+                frequency = shading,
+                onProgress = { index ->
+                    lastIndex = index
+                    // No offset in a scrolled view: the position is the top row and nothing finer.
+                    lastOffset = 0
+                    lastHash = rows.getOrNull(index)?.hash
+                },
+                onBack = closeBook,
+            )
+        } else {
+            // Pagination. The page number is never stored, only DERIVED from the anchor on each
+            // open, because it stops meaning anything the moment the text reflows.
+            PagedReader(
+                title = current.title,
+                bookId = current.id,
+                rows = rows,
+                anchorBlock = anchorBlock,
+                anchorOffset = current.anchorOffset,
+                selectedKey = tapKey,
+                frequency = shading,
+                onWordTap = onWordTap,
+                onBlockTap = openBlock,
+                onPosition = { block, offset ->
+                    lastIndex = block
+                    lastOffset = offset
+                    lastHash = rows.getOrNull(block)?.hash
+                },
+                onBack = closeBook,
+            )
+        }
         tapKey?.let {
             val word = tapIsWord
             // The span one sentence longer, or null at the paragraph's end - the modal hides

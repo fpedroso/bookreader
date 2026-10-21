@@ -14,7 +14,26 @@ data class BookMeta(
     /** dc:language as imported, e.g. "de", or "" when the EPUB carried none. */
     val lang: String = "",
     val addedAt: Long = 0L,
+    /**
+     * Where the reader left off, as a BLOCK index. Kept alongside the offset below rather than
+     * replaced by it: the scrolling reader has no offset of its own, and the paged reader derives
+     * its page from the pair.
+     */
     val lastBlock: Int = 0,
+    /**
+     * The character offset inside [lastBlock] where reading stopped.
+     *
+     * Pagination is what makes this necessary: a page NUMBER stops meaning anything the moment the
+     * font size changes, so the position is stored as a place in the text and the page is derived
+     * from it on every open - see [Paginate.pageOf].
+     */
+    val anchorOffset: Int = 0,
+    /**
+     * The block's hash ([Annotations.key] of its text), which is the part of the position that
+     * survives the book being imported again - the row index alone would point at whatever block
+     * inherited it.
+     */
+    val anchorHash: String? = null,
 )
 
 @Serializable
@@ -63,6 +82,12 @@ data class AppSettings(
      * counts it needs are taken per book, from that book alone (see [WordFrequency]).
      */
     val wordShading: Boolean = false,
+    /**
+     * Turn pages instead of scrolling. Off by default, and off means PAGES: pagination is how the
+     * book reads now, and this switch - Settings > Reading > "Use scroll instead of pages" - is the
+     * way back to the continuous view.
+     */
+    val useScroll: Boolean = false,
 )
 
 /** Plain-file library: no database dependency for v1. */
@@ -98,11 +123,31 @@ object Store {
         File(booksDir(context), id).deleteRecursively()
     }
 
-    fun setProgress(context: Context, id: String, lastBlock: Int) {
+    /**
+     * Remember where the reader is: the block, the offset inside it, and the block's hash.
+     *
+     * Three values because each survives a different thing. The offset survives a reflow (the page
+     * number does not), and the hash survives the book being imported again (the row index does not).
+     */
+    fun setProgress(
+        context: Context,
+        id: String,
+        lastBlock: Int,
+        anchorOffset: Int = 0,
+        anchorHash: String? = null,
+    ) {
         val state = load(context)
         save(
             context,
-            state.copy(books = state.books.map { if (it.id == id) it.copy(lastBlock = lastBlock) else it }),
+            state.copy(
+                books = state.books.map {
+                    if (it.id == id) {
+                        it.copy(lastBlock = lastBlock, anchorOffset = anchorOffset, anchorHash = anchorHash)
+                    } else {
+                        it
+                    }
+                },
+            ),
         )
     }
 

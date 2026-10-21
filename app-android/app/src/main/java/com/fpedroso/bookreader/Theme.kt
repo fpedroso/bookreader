@@ -61,6 +61,15 @@ object Appearance {
 }
 
 /**
+ * Alpha of the wash behind the word under the finger in the paged reader.
+ *
+ * Low on purpose: the wash is the primary colour at a fifth strength, so the word's frequency tint
+ * still reads through it. A solid highlight would answer "which word" by hiding the answer to "how
+ * common is it", and the two are on screen at once.
+ */
+const val PRESSED_ALPHA = 0.22f
+
+/**
  * Whether the window is dark right now - the reader's choice, or the system's when they picked
  * "follow the system". Read from [Appearance] rather than passed around, so the theme and anything
  * that colours text by hand cannot disagree about which palette is on.
