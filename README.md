@@ -16,14 +16,16 @@ the words and sentences you can't.
    reading view is continuous scrolling by design: there is no pagination, and a paragraph is
    laid out the way the EPUB wrote it — no invented line breaks, no per-sentence furniture.
 3. **Sentences** exist for the translator, not for the eye. `Sentences.kt` splits a paragraph so
-   that "Translate sentence" knows what the sentence around a tapped word is
-   (`Sentences.enclosing`), and nothing on the page changes shape because of it.
-4. **Tap a word** for that word's translation alone (`Words.kt` finds the word under the tap). The
-   modal shows the sentence the word sits in — one word out of context is exactly what translates
-   ambiguously — and offers **Translate sentence** to move up to that sentence, where **Translate
-   more** extends the unit by one sentence at a time. A tap that lands between two words takes the
-   nearer one rather than doing nothing. Headings and verse stanzas are units of their own, so a
-   tap that misses their words asks for the whole block.
+   that **Translate more** knows which sentence a tapped word is in (`Sentences.enclosing`), and
+   nothing on the page changes shape because of it.
+4. **Tap a word** for that word's translation alone (`Words.kt` finds the word under the tap). There
+   is **one modal for everything, titled Translation**: for a word it shows the word, the pair, how
+   often that word recurs in this book, and the answer — plus **Translate more**, which grows the unit
+   to the sentence the word sits in. That sentence is also folded into the request, because one word
+   out of context is exactly what translates ambiguously, but it is not shown under the word: the
+   reader asked for one word. Pressing **Translate more** again extends by one more sentence. A tap
+   that lands between two words takes the nearer one rather than doing nothing; a heading or a verse
+   stanza is a unit of its own, so a tap that misses its words asks for the whole block.
 5. **Per-block language.** A block's language comes from the document's own `lang`/`xml:lang`
    (the nearest ancestor first, then `<html lang>`), then the book's `dc:language`, then how
    the book was imported — and only if all of those are silent, ML Kit Language
@@ -167,8 +169,8 @@ per block. The reader used to split each paragraph into one sentence per line, 1
 **EN** chip appended to every sentence; that furniture is gone. It existed because the *sentence* was
 a tap unit and the chip was the only way to ask for one — and it was paid for with a ragged right edge
 and taller paragraphs, to express something the page never had to say. Sentences still exist, but only
-for the translator: `Sentences.enclosing` finds the sentence around a tapped word and the word modal
-offers **Translate sentence**. What the eye gets is the book's own formatting.
+for the translator: `Sentences.enclosing` finds the sentence around a tapped word and the modal's one
+button, **Translate more**, grows to it. What the eye gets is the book's own formatting.
 
 **A word tap needs offsets, and a miss now means the nearest word.** One composable per word throws away
 the real inter-word spacing, so prose stays a single flowing `Text` and the word comes from

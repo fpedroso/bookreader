@@ -82,7 +82,7 @@ object Sentences {
      * Offsets are the CALLER's own - the same offsets it would use to find a word - so this works on
      * the raw block text the reader renders. That is the whole reason it exists: the reader no longer
      * re-lays a paragraph out sentence by sentence, so a tap reports an offset into the paragraph as
-     * the EPUB wrote it, and the sentence behind "Translate sentence" has to be looked up at that
+     * the EPUB wrote it, and the sentence that "Translate more" grows to has to be found at that
      * offset rather than counted off a line.
      */
     fun enclosing(

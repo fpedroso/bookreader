@@ -454,16 +454,17 @@ private fun WordTapText(
 // ------------------------------------------------------- sentence translation
 
 /**
- * The unit translation modal.
+ * The translation modal - and there is only one.
  *
- * One dialog for all three units, because they differ only in what they are called and in which
- * extension they offer: a WORD - whose context sentence is shown beneath it, and which can hand
- * over to that sentence - a SENTENCE, extendable with "Translate more", and a whole PASSAGE (a
- * heading or a stanza), which has no sentences to grow into.
+ * It shows whatever was asked for: one word, one sentence, or a whole block. The chrome does not
+ * change with the unit - one title ("Translation"), one extension ("Translate more", which App
+ * interprets for whatever is open) - because the reader asked for a translation, not for a label
+ * saying which kind of thing they tapped. What is being translated is the first line of the body,
+ * which is where they are looking anyway.
  *
- * Deliberately the same shape the word dialog had: the unit stays visible behind the scrim and the
- * translation appears underneath it. On-device, so this is a "what does this say" answer, not a
- * grammar explanation.
+ * Deliberately the same shape the word dialog had: what is being translated stays visible behind the
+ * scrim and the translation appears underneath it. On-device, so this is a "what does this say"
+ * answer, not a grammar explanation.
  */
 @Composable
 fun TranslationDialog(
@@ -471,8 +472,16 @@ fun TranslationDialog(
     translation: String?,
     busy: Boolean,
     error: String?,
-    /** "word", "sentence" or "passage" - which unit is being shown. Only a label. */
-    unit: String = "sentence",
+    /**
+     * The open unit is a WORD, so the sentence it sits in is NOT shown beneath it: the reader asked
+     * for one word, and the context line is noise beside an answer that is a single word long.
+     *
+     * It is the only thing the modal knows about what it is showing. The title is always
+     * "Translation" - the reader asked for a translation, not for a classification - and the button
+     * that grows the unit always reads "Translate more". A block unit (a heading, a stanza) passes
+     * false and brings no context of its own, so nothing appears for it either.
+     */
+    wordUnit: Boolean = false,
     /**
      * A warning, not provenance: set only when the engine that answered is NOT the one chosen, e.g.
      * OpenRouter was selected and ML Kit answered because no key is saved. Null in the ordinary case,
@@ -510,30 +519,30 @@ fun TranslationDialog(
      */
     downloading: Boolean = false,
     /**
-     * Extend the open unit by one more sentence and translate the joined text. Non-null only
-     * when the unit is a sentence with a following sentence in the same paragraph, so a
-     * paragraph or heading tap - and the last sentence of a paragraph - shows nothing here.
+     * Grow the open unit by one step: from a word, that step is the sentence it sits in; from a
+     * sentence, it is that sentence plus the next one. Null when there is nothing to grow into.
+     *
+     * ONE callback and ONE label on purpose. The modal no longer says whether it is showing a word or
+     * a sentence, so a reader who presses "Translate more" is asking for more of the same thing
+     * either way - and App decides what that means for the unit that is open.
      */
-    onTranslateMore: (() -> Unit)? = null,
-    /**
-     * Translate the sentence the open word sits in - the way back to the sentence unit after a word
-     * tap. Null unless a word was tapped inside a sentence.
-     */
-    onTranslateSentence: (() -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            // The extending actions ride next to "Close": each acts on the modal and none of them
-            // dismisses - the reader reads the longer translation in place.
+            // "Translate more" rides next to "Close": it acts on the modal and does not dismiss -
+            // the reader reads the longer translation in place.
             Row {
-                onTranslateSentence?.let { go -> TextButton(onClick = go) { Text("Translate sentence") } }
-                onTranslateMore?.let { more -> TextButton(onClick = more) { Text("Translate more") } }
+                onMore?.let { more -> TextButton(onClick = more) { Text("Translate more") } }
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         },
-        title = { Text(unit.replaceFirstChar { it.uppercase() }, fontSize = 20.sp) },
+        // One title for every unit. What is being translated is on the first line of the body, which
+        // is where the reader looks anyway; a title that said WORD or SENTENCE classified the
+        // request instead of answering it.
+        title = { Text("Translation", fontSize = 20.sp) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(source, style = MaterialTheme.typography.bodySmall)
@@ -558,7 +567,7 @@ fun TranslationDialog(
                 }
                 // The sentence a tapped word came from is context for weighing prose; for one word the
                 // reader asked for the word alone, so it is not shown there.
-                if (unit != "word") {
+                if (!wordUnit) {
                     context?.let {
                         Spacer(Modifier.height(6.dp))
                         Text(

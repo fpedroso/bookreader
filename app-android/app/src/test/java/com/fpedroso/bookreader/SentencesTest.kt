@@ -189,7 +189,7 @@ class SentencesTest {
     @Test
     fun theSentenceAroundAWordIsFoundAtItsOffset() {
         // The reader no longer lays a paragraph out sentence by sentence, so a tap reports an offset
-        // into the paragraph AS THE EPUB WROTE IT, and "Translate sentence" has to find the sentence
+        // into the paragraph AS THE EPUB WROTE IT, and "Translate more" has to find the sentence
         // at that offset. Offsets are the caller's own, in the caller's own text.
         val para = "Er ging nach Hause. Sie blieb hier."
         assertEquals("Sie blieb hier.", Sentences.enclosing(para, para.indexOf("blieb"), "de")?.text)
@@ -199,7 +199,7 @@ class SentencesTest {
     @Test
     fun theOffsetsAreIntoTheTextAsHandedInEvenWhenItIsUntidy() {
         // Leading and double spaces are common in real EPUBs. The DISPLAY text is normalised; the
-        // offsets are not, or the lookup would land on the wrong sentence and "Translate sentence"
+        // offsets are not, or the lookup would land on the wrong sentence and "Translate more"
         // would answer about the wrong sentence entirely.
         val para = "  Er ging.  Sie blieb hier."
         val at = para.indexOf("blieb")

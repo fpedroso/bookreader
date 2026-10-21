@@ -362,14 +362,19 @@ fun App() {
         // A WORD: the only unit the text itself offers. It is still ML Kit's call, exactly as a
         // sentence was - there is no dictionary in this app any more - so what comes back is one
         // rendering of the word, with no lemma, part of speech or alternative senses. The sentence it
-        // sits in is the context: shown under it, folded into the cache key, and the target of
-        // "Translate sentence".
+        // sits in is the context: folded into the cache key, and what "Translate more" grows to.
+        // It is NOT shown under the word - the reader asked for one word.
         val onWordTap: (RowItem, Words.Word) -> Unit = { para, word ->
             // The row's sentences are split ON DEMAND, at the offset the tap reported. The reader no
             // longer lays a paragraph out sentence by sentence, so there is no index to carry: the
             // sentence has to be found where the word actually is. Cheap - one short paragraph - and
             // it means the splitter runs on exactly the text the reader is looking at.
-            val sentences = Sentences.split(para.text, lang, abbreviations)
+            //
+            // A heading or a stanza has none: it is one unit end to end, and splitting it would
+            // collapse its line breaks into prose and hand back a sentence that never existed.
+            val sentences =
+                if (para.blockUnit) emptyList()
+                else Sentences.split(para.text, lang, abbreviations)
             val index = sentences.indexOfFirst { word.start in it.start until it.end }
             val sentence = sentences.getOrNull(index)
             tapRow = para
@@ -415,39 +420,35 @@ fun App() {
             //
             // The sentences are split on demand here too: the reader keeps no per-row sentence list
             // any more, and this needs the span AFTER the open one. Only the texts are wanted - the
-            // offsets were the tap's business and are long gone.
-            val openSentences = tapRow
-                ?.let { row -> Sentences.split(row.text, lang, abbreviations).map { it.text } }
-                ?: emptyList()
+            // offsets were the tap's business and are long gone. A block unit has none, for the same
+            // reason onWordTap gives it none: splitting a stanza invents sentences that never existed.
+            val openSentences = if (tapRow?.blockUnit == true) {
+                emptyList()
+            } else {
+                tapRow?.let { row -> Sentences.split(row.text, lang, abbreviations).map { it.text } }
+                    ?: emptyList()
+            }
             val moreSpan =
                 if (word) null
                 else nextSpan(openSentences, UnitSpan(tapStart, tapCount))
-            TranslationDialog(
-                source = tapSource,
-                translation = translation,
-                busy = translating,
-                error = translateError,
-                // Three units, one dialog: a word, a sentence, or a whole passage (a heading or a
-                // stanza, which never had sentences to grow into).
-                unit = when {
-                    word -> "word"
-                    tapRow == null -> "passage"
-                    else -> "sentence"
-                },
-                context = tapContext,
-                pair = languagePair(tapLang),
-                // Only a word carries its frequency: on a sentence the equivalent line would have to
-                // describe a whole span of words at once, which is a summary, not a fact.
-                frequencyNote = if (word) frequency?.describe(tapSource) else null,
-                // Provenance only when it is NOT what the reader chose: if OpenRouter was selected and
-                // ML Kit answered instead, that is worth knowing. When the chosen engine answered,
-                // naming it and its model is just noise on top of the translation - the reader said so,
-                // and for a one-word answer the noise was worse than the line.
-                engineLabel = if (engine == selectedEngine) null
-                else engineProvenance(engine, selectedEngine, settings),
-                alreadyEnglish = alreadyEnglish,
-                downloading = downloading,
-                onTranslateMore = moreSpan?.let { span ->
+            // ONE "more" action for the modal, which no longer distinguishes a word from a sentence.
+            // From a WORD: the whole block for a heading or a stanza - they have no sentences - and
+            // otherwise the sentence the word sits in. From a SENTENCE: that sentence plus the next.
+            // Either way the action is the same (translate that text under ITS own key) and the modal
+            // stops being about a single word, so the button can say the same thing every time.
+            val wordMore: String? = if (word) {
+                val para = tapRow
+                if (para?.blockUnit == true) para.text else tapContext
+            } else null
+            val onMore: (() -> Unit)? = when {
+                word -> wordMore?.let { target ->
+                    {
+                        tapIsWord = false
+                        tapContext = null
+                        openTranslation(unitKey(engine, target, model = settings.apiModel), target, tapRow?.lang)
+                    }
+                }
+                else -> moreSpan?.let { span ->
                     {
                         if (openSentences.isNotEmpty()) {
                             // Translate the JOINED text as one unit, under its OWN key.
@@ -462,20 +463,30 @@ fun App() {
                             openTranslation(unitKey(engine, joined, model = settings.apiModel), joined, tapRow?.lang)
                         }
                     }
-                },
-                // Only a word offers this, and only when it sits in a sentence: the way from the
-                // smallest unit back up to the sentence. It translates under the SENTENCE's own key,
-                // so the result is shared with the chip at the end of that same sentence.
-                onTranslateSentence = if (word && tapContext != null) {
-                    {
-                        val sentence = tapContext
-                        if (sentence != null) {
-                            tapIsWord = false
-                            tapContext = null
-                            openTranslation(unitKey(engine, sentence, model = settings.apiModel), sentence, tapRow?.lang)
-                        }
-                    }
-                } else null,
+                }
+            }
+            TranslationDialog(
+                source = tapSource,
+                translation = translation,
+                busy = translating,
+                error = translateError,
+                // The modal is the same for every unit; this is the only thing it needs to know - that
+                // a word's own sentence is not shown beneath it.
+                wordUnit = word,
+                context = tapContext,
+                pair = languagePair(tapLang),
+                // Only a word carries its frequency: on a sentence the equivalent line would have to
+                // describe a whole span of words at once, which is a summary, not a fact.
+                frequencyNote = if (word) frequency?.describe(tapSource) else null,
+                // Provenance only when it is NOT what the reader chose: if OpenRouter was selected and
+                // ML Kit answered instead, that is worth knowing. When the chosen engine answered,
+                // naming it and its model is just noise on top of the translation - the reader said so,
+                // and for a one-word answer the noise was worse than the line.
+                engineLabel = if (engine == selectedEngine) null
+                else engineProvenance(engine, selectedEngine, settings),
+                alreadyEnglish = alreadyEnglish,
+                downloading = downloading,
+                onMore = onMore,
                 onDismiss = {
                     tapKey = null
                     tapRow = null
