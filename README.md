@@ -1,7 +1,8 @@
 # bookreader
 
 An Android EPUB reader for language learners: read any EPUB, **tap a word to see that word in
-English**, or tap the chip at the end of a sentence to see the whole sentence — on device, offline.
+English**, then ask for the whole sentence it sits in if the word alone is not enough — on device,
+offline.
 
 Built for reading German books at a level where you can mostly understand them, and checking only
 the words and sentences you can't.
@@ -12,18 +13,17 @@ the words and sentences you can't.
    in a small JSON manifest (`Store.kt`).
 2. **Read** it as prose. Blocks come from `EpubParser` in `Epub.kt` — OPF spine order, and a
    stack of block collectors so a container's own text is a block in its own right. The
-   reading view is continuous scrolling by design: there is no pagination.
-3. **Sentences.** For German, each paragraph is split into sentences (`Sentences.kt`) and each
-   one starts on its own line, 12dp apart (less than the 20dp between paragraphs, so a paragraph
-   break reads as the bigger one). Nothing is drawn behind the text: the layout is the only thing
-   defining the unit, and a small **EN** chip sits inline at the end of each sentence as its
-   action.
+   reading view is continuous scrolling by design: there is no pagination, and a paragraph is
+   laid out the way the EPUB wrote it — no invented line breaks, no per-sentence furniture.
+3. **Sentences** exist for the translator, not for the eye. `Sentences.kt` splits a paragraph so
+   that "Translate sentence" knows what the sentence around a tapped word is
+   (`Sentences.enclosing`), and nothing on the page changes shape because of it.
 4. **Tap a word** for that word's translation alone (`Words.kt` finds the word under the tap). The
    modal shows the sentence the word sits in — one word out of context is exactly what translates
-   ambiguously — and offers **Translate sentence** to move up to the whole unit. Tapping a
-   sentence's **EN** chip translates the whole sentence, and **Translate more** there extends the
-   unit by one sentence at a time, which is the escape hatch when a split landed in the wrong
-   place.
+   ambiguously — and offers **Translate sentence** to move up to that sentence, where **Translate
+   more** extends the unit by one sentence at a time. A tap that lands between two words takes the
+   nearer one rather than doing nothing. Headings and verse stanzas are units of their own, so a
+   tap that misses their words asks for the whole block.
 5. **Per-block language.** A block's language comes from the document's own `lang`/`xml:lang`
    (the nearest ancestor first, then `<html lang>`), then the book's `dc:language`, then how
    the book was imported — and only if all of those are silent, ML Kit Language
@@ -49,7 +49,7 @@ the words and sentences you can't.
 **Opening a book never blocks on any per-language preparation.** Any EPUB in any language
 imports and renders as plain text. Translation is offered for **German books only** for now — the
 gate is `translationOffered` in `Translate.kt`, one line to widen once the tap has been read on
-more than one language. A row with no translation offered renders inert: no chip, no word tap.
+more than one language. A row with no translation offered renders inert: no word tap at all.
 
 **The engine is a setting, and it decides who can read what you read.** ML Kit is the on-device
 default: free, offline once its ~30 MB pack is in place. OpenRouter is the cloud engine, and it is
@@ -98,8 +98,7 @@ still cannot be downgraded to plain HTTP.
   pin both sides of it.
 
 - **Light and dark are the same design, twice.** Every colour the reader uses is a MaterialTheme
-  role — page, sentence borders, inline chips, dialogs — so a theme change is a scheme swap and
-  nothing else. `Theme.kt` holds stock `darkColorScheme()` and `lightColorScheme()`, picked by a
+  role — page, block outline, dialogs — so a theme change is a scheme swap and nothing else. `Theme.kt` holds stock `darkColorScheme()` and `lightColorScheme()`, picked by a
   `ThemeMode` (Dark, Light, Follow the system) stored as a string id in `settings.json`; an unknown
   or missing id reads back as the default rather than failing, so a settings file written before the
   setting existed keeps its key, model and endpoint. The choice lives in `Appearance`, above the
@@ -163,30 +162,22 @@ without its referent. A hardcoded list was rejected in exchange for rules that n
 maintenance, and a "short capitalised word before the dot" rule was rejected too: it also
 suppresses the split in `Er traf Hans. Dann ging er.`
 
-**Each sentence gets its own line, and nothing is drawn behind it.** One composable per sentence,
-stacked 12dp apart (less than the 20dp between paragraphs, so a paragraph break reads as the bigger
-one). The layout IS the unit — the page had been a grid of frames when sentences were outlined, and a
-tint that replaced it was removed again in favour of a cleaner page. What marks a unit as
-translatable is now the **EN** chip at the end of it. The price of the layout is a ragged right edge,
-which is the point for a reader comparing sentence structures.
+**A paragraph is laid out the way the EPUB wrote it, and nothing is drawn behind it.** One composable
+per block. The reader used to split each paragraph into one sentence per line, 12dp apart, with an
+**EN** chip appended to every sentence; that furniture is gone. It existed because the *sentence* was
+a tap unit and the chip was the only way to ask for one — and it was paid for with a ragged right edge
+and taller paragraphs, to express something the page never had to say. Sentences still exist, but only
+for the translator: `Sentences.enclosing` finds the sentence around a tapped word and the word modal
+offers **Translate sentence**. What the eye gets is the book's own formatting.
 
-**A word tap needs offsets; a sentence tap must not use them.** One composable per word throws away
+**A word tap needs offsets, and a miss now means the nearest word.** One composable per word throws away
 the real inter-word spacing, so prose stays a single flowing `Text` and the word comes from
-`getOffsetForPosition` plus `Words.at` — an approximation only inside whitespace, where a tap that
-resolves to no word at all asks for the unit rather than doing nothing. The unit itself stays exact
-by construction: one composable per sentence, with the chip appended to that composable.
-
-**The chip is inline content, not a sibling.** `appendInlineContent` lays it out inside the text, so
-it sits at the end of the *last line* the sentence occupies and wraps with it. A `Row` or `FlowRow`
-sibling cannot do that: a sentence that fills the width measures as a full-width item, so the chip
-would drop onto a line of its own and read as a stray bullet. It is found by geometry (the tap's
-offset, or the placeholder's bounding box) rather than by its own `clickable`, because a nested
-clickable inside inline content competes with the text's tap handler for the same gesture.
-
-It spells **EN** rather than drawing a glyph on purpose: `material-icons-extended` is a ~5 MB
-dependency this app has no other use for and the core icon set has no translate symbol, and naming
-the target says what the tap will produce rather than merely that something language-shaped will
-happen.
+`getOffsetForPosition` plus `Words.at` — an approximation only inside whitespace. A tap that resolves
+to no word used to ask for the sentence, which was the honest unit for a vague tap; with sentences no
+longer reachable from the text, `Words.atNearest` takes the nearer of the two words instead, because a
+tap that does nothing at all reads as a broken app. The one exception is a block that is itself a unit
+— a heading or a verse stanza, `RowItem.blockUnit` — where a miss asks for the whole block, which is
+the only way to translate one now that there is no chip.
 
 **Translation runs on device.** ML Kit's models (~30 MB per pair) download on first use and
 inference is offline and free, so translation can be lazy and automatic with no per-sentence

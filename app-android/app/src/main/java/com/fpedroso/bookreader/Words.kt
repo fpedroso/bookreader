@@ -69,11 +69,37 @@ object Words {
      * The word containing [offset], or null when the offset lands on a space, a punctuation mark
      * or a digit - positions that are not a word and must not silently resolve to a neighbour.
      *
-     * The caller decides what an empty answer means; the reader view treats it as "the unit",
-     * because a tap between two words should not be a dead tap.
+     * The caller decides what an empty answer means. The reader view falls back to [atNearest],
+     * because a tap between two words should not be a dead tap - see that function for why the old
+     * "ask for the sentence instead" answer is gone.
      */
     fun at(text: String, offset: Int): Word? {
         if (offset < 0 || offset >= text.length) return null
         return tokenize(text).firstOrNull { offset in it.start until it.end }
+    }
+
+    /**
+     * The word nearest [offset], for a tap that landed between two words.
+     *
+     * Deliberately different from [at], and the difference is a design change. While the sentence was
+     * a tap unit, a tap in whitespace asked for the SENTENCE: the unit was the honest answer to a
+     * vague tap, and resolving to a neighbouring word would have been a guess. Sentences are no
+     * longer reachable from the text - they come from a word's modal - so there is nothing left for
+     * a miss to mean, and a tap that does nothing at all reads as a broken app.
+     *
+     * Distance is measured to the nearest edge of each word, so a tap just past a word's last letter
+     * prefers that word. Ties go to the EARLIER word: `minByOrNull` keeps the first minimum, and in a
+     * left-to-right line a tap on the boundary belongs to the word it just left.
+     */
+    fun atNearest(text: String, offset: Int): Word? {
+        val words = tokenize(text)
+        if (words.isEmpty()) return null
+        return words.minByOrNull { w ->
+            when {
+                offset in w.start until w.end -> 0
+                offset < w.start -> w.start - offset
+                else -> offset - (w.end - 1)
+            }
+        }
     }
 }

@@ -187,26 +187,37 @@ class SentencesTest {
     }
 
     @Test
-    fun proseBecomesOneUnitPerSentence() {
-        // sentenceUnits is what the reader renders as one line per sentence, so these ARE the
-        // tap targets: text, not offsets, because the composable is the sentence.
-        assertEquals(
-            listOf("Er ging nach Hause.", "Sie blieb hier."),
-            sentenceUnits("Er ging nach Hause. Sie blieb hier.", heading = false, lang = "de"),
-        )
+    fun theSentenceAroundAWordIsFoundAtItsOffset() {
+        // The reader no longer lays a paragraph out sentence by sentence, so a tap reports an offset
+        // into the paragraph AS THE EPUB WROTE IT, and "Translate sentence" has to find the sentence
+        // at that offset. Offsets are the caller's own, in the caller's own text.
+        val para = "Er ging nach Hause. Sie blieb hier."
+        assertEquals("Sie blieb hier.", Sentences.enclosing(para, para.indexOf("blieb"), "de")?.text)
+        assertEquals("Er ging nach Hause.", Sentences.enclosing(para, para.indexOf("ging"), "de")?.text)
     }
 
     @Test
-    fun headingsAndVerseKeepTheWholeParagraph() {
-        // A heading is not translated a sentence at a time, and verse must not be split: the
-        // splitter would turn its line breaks back into prose and undo the verse rendering.
-        assertNull(sentenceUnits("Ein Neuer Anfang", heading = true, lang = "de"))
-        assertNull(
-            sentenceUnits(
-                "Sieh einmal, hier steht er,\npfui, der Kritzel-Karl!",
-                heading = false,
-                lang = "de",
-            )
+    fun theOffsetsAreIntoTheTextAsHandedInEvenWhenItIsUntidy() {
+        // Leading and double spaces are common in real EPUBs. The DISPLAY text is normalised; the
+        // offsets are not, or the lookup would land on the wrong sentence and "Translate sentence"
+        // would answer about the wrong sentence entirely.
+        val para = "  Er ging.  Sie blieb hier."
+        val at = para.indexOf("blieb")
+        val s = Sentences.enclosing(para, at, "de")!!
+        assertEquals("Sie blieb hier.", s.text)
+        assertTrue(at in s.start until s.end)
+        assertEquals("  Sie blieb hier.", para.substring(s.start, s.end))
+    }
+
+    @Test
+    fun aBlockIsItsOwnUnitOnlyForAHeadingOrAVerse() {
+        // This rule used to be a helper the reader called while splitting; it lives on the row now,
+        // because the row is what gets rendered and tapped. Verse must not be split - that would turn
+        // its line breaks back into prose and undo the verse rendering.
+        assertTrue(RowItem(text = "Ein Neuer Anfang", heading = true).blockUnit)
+        assertTrue(
+            RowItem(text = "Sieh einmal, hier steht er,\npfui, der Kritzel-Karl!", heading = false).blockUnit,
         )
+        assertTrue(!RowItem(text = "Er ging nach Hause. Sie blieb hier.", heading = false).blockUnit)
     }
 }

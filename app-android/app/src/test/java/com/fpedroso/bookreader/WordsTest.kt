@@ -106,4 +106,28 @@ class WordsTest {
         assertEquals(emptyList<String>(), words(""))
         assertNull(Words.at("", 0))
     }
+
+    @Test
+    fun aTapBetweenTwoWordsResolvesToTheNearerOne() {
+        // The fallback that replaced "ask for the sentence": the sentence is no longer a unit of the
+        // text, so a miss has to mean the word the finger was closest to, or the tap does nothing.
+        val text = "Der Junge ging"
+        // offset 3 is the space after "Der": one from both neighbours, so the tie decides it
+        assertEquals("Der", Words.atNearest(text, 3)?.text)
+        // the space before "ging" (offset 9) is one past "Junge" and one before "ging": ties go to
+        // the EARLIER word, which is the one the tap just left
+        assertEquals("Junge", Words.atNearest(text, 9)?.text)
+        // inside a word it is that word, exactly as `at` would say
+        assertEquals("Junge", Words.atNearest(text, 5)?.text)
+    }
+
+    @Test
+    fun theNearestWordIsFoundAtTheEdgesToo() {
+        val text = "Der Junge"
+        // past the end and before the start still resolve, rather than doing nothing
+        assertEquals("Junge", Words.atNearest(text, text.length + 40)?.text)
+        assertEquals("Der", Words.atNearest(text, -5)?.text)
+        assertNull(Words.atNearest("", 3))
+        assertNull(Words.atNearest("   ...   ", 4))
+    }
 }

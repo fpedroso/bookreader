@@ -73,8 +73,24 @@ object Sentences {
         when {
             lang.startsWith("de") -> splitGerman(text, abbreviations)
             // Latin-script default; good enough for the other European languages.
-            else -> splitByAsciiPunctuation(normalise(text), abbreviations)
+            else -> splitByAsciiPunctuation(text, abbreviations)
         }
+
+    /**
+     * The sentence containing [offset], or null when nothing there is sentence-shaped.
+     *
+     * Offsets are the CALLER's own - the same offsets it would use to find a word - so this works on
+     * the raw block text the reader renders. That is the whole reason it exists: the reader no longer
+     * re-lays a paragraph out sentence by sentence, so a tap reports an offset into the paragraph as
+     * the EPUB wrote it, and the sentence behind "Translate sentence" has to be looked up at that
+     * offset rather than counted off a line.
+     */
+    fun enclosing(
+        text: String,
+        offset: Int,
+        lang: String,
+        abbreviations: Set<String> = emptySet(),
+    ): Sentence? = split(text, lang, abbreviations).firstOrNull { offset in it.start until it.end }
 
     // ------------------------------------------------------------------ German
 
@@ -88,7 +104,7 @@ object Sentences {
      * reader sees is a sentence the splitter meant.
      */
     fun splitGerman(raw: String, abbreviations: Set<String> = emptySet()): List<Sentence> =
-        splitByAsciiPunctuation(normalise(raw), abbreviations)
+        splitByAsciiPunctuation(raw, abbreviations)
 
     private fun splitByAsciiPunctuation(text: String, abbreviations: Set<String>): List<Sentence> {
         val out = ArrayList<Sentence>()
@@ -106,13 +122,17 @@ object Sentences {
             var k = j
             while (k + 1 < text.length && text[k + 1] in CLOSERS) k++
             if (endsSentence(text, i, j, k, abbreviations)) {
-                out.add(Sentence(text.substring(start, k + 1).trim(), start, k + 1))
+                // The OFFSETS stay the caller's (they index [text] as handed in); only the display
+                // text is whitespace-normalised, so a raw paragraph's double spaces do not show up in
+                // the modal - and, because the app keys translations on this text, normalised here is
+                // also what keeps existing cache entries resolving.
+                out.add(Sentence(normalise(text.substring(start, k + 1)), start, k + 1))
                 start = k + 1
             }
             i = k + 1
         }
         if (start < text.length) {
-            val tail = text.substring(start).trim()
+            val tail = normalise(text.substring(start))
             if (tail.isNotEmpty()) out.add(Sentence(tail, start, text.length))
         }
         return out
