@@ -15,32 +15,22 @@ enum class Engine(
     MLKIT(
         id = "mlkit",
         label = "ML Kit",
-        note = "Fast and tiny (~60 MB of language packs). Occasionally produces broken English on hard sentences.",
-    ),
-    QWEN_1_7B(
-        id = "qwen3-1.7b",
-        label = "Qwen3 1.7B",
-        note = "977 MB. 2-4 s per sentence. Writes real sentences where ML Kit breaks down; can misread meaning.",
-    ),
-    QWEN_4B(
-        id = "qwen3-4b",
-        label = "Qwen3 4B",
-        note = "2.5 GB. Roughly twice the wait of the 1.7B, and the best of the three local models on the hardest sentences.",
+        note = "On-device and free after a ~30 MB language pack. Fast, but occasionally produces broken English on hard sentences.",
     ),
     OPENROUTER(
         id = "openrouter",
         label = "OpenRouter (cloud)",
-        note = "Cents for a whole book, and usually the best of the four — but the text leaves the device. Needs an API key.",
+        note = "Cents for a whole book, and the best translations of the engines tried — but the text leaves the device. Needs an API key.",
     ),
     ;
 
     /**
      * Whether the engine translates a word with its sentence as context.
      *
-     * A language model can use the context sentence and a word alone is exactly what translates
-     * ambiguously, so the word's cache key has to include that sentence for these engines - otherwise
-     * "Bank" in two different sentences would share one entry. ML Kit's API accepts only the text, so
-     * for it the context is not part of the key and would only duplicate entries.
+     * The cloud engine can use the context sentence, and a word alone is exactly what translates
+     * ambiguously, so the word's cache key includes that sentence for it - otherwise "Bank" in two
+     * different sentences would share one entry. ML Kit's API accepts only the text, so for it the
+     * context is not part of the key and would only duplicate entries.
      */
     val usesContext: Boolean get() = this != MLKIT
 
@@ -55,10 +45,10 @@ enum class Engine(
     /**
      * Whether this build can run the engine.
      *
-     * All three, now that LiteRT-LM is a dependency, so what actually gates a choice at runtime is
-     * whether the model is on the device - see [Models.resolve]. The distinction is kept because an
-     * engine could be listed before its runtime ships, and then it must say so rather than be
-     * selectable and fail on the first tap.
+     * Both, and they always have been able to: what actually gates a choice at runtime is readiness -
+     * ML Kit is always usable, the cloud engine needs a key (see [Models.ready]). The distinction is
+     * kept because an engine could be listed before its runtime ships, and then it must say so rather
+     * than be selectable and fail on the first tap.
      */
     val runnable: Boolean get() = true
 
@@ -88,8 +78,8 @@ fun unitKey(
     if (engine.usesContext && !context.isNullOrBlank()) parts.add(context)
     // A cloud engine's model is a free-text setting, so it is part of what answered and has to be
     // part of the key: otherwise retyping the model id serves the previous model's translations
-    // while the modal names the new one, which reads as the new model being bad at its job. (The
-    // local engines pin their model to the engine id, so nothing is passed there.)
+    // while the modal names the new one, which reads as the new model being bad at its job. (ML Kit
+    // pins its model to the engine, so nothing is passed for it.)
     if (engine.cloud && !model.isNullOrBlank()) parts.add(model)
     // Built on [translationKey] so the properties that make the key safe - whitespace-invariant,
     // sensitive to the text itself - hold for namespaced keys too.

@@ -11,24 +11,22 @@ import org.junit.Test
  *
  * The engine-scoped key is the whole reason this file exists: two engines return different
  * translations for the same text, so a cache keyed on the text alone would hand ML Kit's answer back
- * when the reader switches to a local model - and it would look like the new model is bad, not like
- * the cache is wrong.
+ * when the reader switches to the cloud engine - and it would look like the new engine is bad, not
+ * like the cache is wrong.
  */
 class EnginesTest {
 
     @Test
     fun theSameTextUnderTwoEnginesGetsTwoKeys() {
         val text = "Der Hund läuft nach Hause."
-        assertNotEquals(unitKey(Engine.MLKIT, text), unitKey(Engine.QWEN_1_7B, text))
-        assertNotEquals(unitKey(Engine.MLKIT, text), unitKey(Engine.QWEN_4B, text))
-        assertNotEquals(unitKey(Engine.QWEN_1_7B, text), unitKey(Engine.QWEN_4B, text))
+        assertNotEquals(unitKey(Engine.MLKIT, text), unitKey(Engine.OPENROUTER, text))
     }
 
     @Test
     fun theSameInputsAlwaysGiveTheSameKey() {
         assertEquals(
-            unitKey(Engine.QWEN_1_7B, "Bank", "Eine wirkliche Bank."),
-            unitKey(Engine.QWEN_1_7B, "Bank", "Eine wirkliche Bank."),
+            unitKey(Engine.OPENROUTER, "Bank", "Eine wirkliche Bank."),
+            unitKey(Engine.OPENROUTER, "Bank", "Eine wirkliche Bank."),
         )
     }
 
@@ -54,8 +52,8 @@ class EnginesTest {
         val bench = "Eine wirkliche Bank."
         val money = "Das Geld liegt auf der Bank."
         assertNotEquals(
-            unitKey(Engine.QWEN_1_7B, word, bench),
-            unitKey(Engine.QWEN_1_7B, word, money),
+            unitKey(Engine.OPENROUTER, word, bench),
+            unitKey(Engine.OPENROUTER, word, money),
         )
     }
 
@@ -69,7 +67,7 @@ class EnginesTest {
             unitKey(Engine.MLKIT, word, "Das Geld liegt auf der Bank."),
         )
         assertFalse(Engine.MLKIT.usesContext)
-        assertTrue(Engine.QWEN_1_7B.usesContext)
+        assertTrue(Engine.OPENROUTER.usesContext)
     }
 
     @Test
@@ -77,7 +75,22 @@ class EnginesTest {
         assertEquals(Engine.MLKIT, Engine.fromId(null))
         assertEquals(Engine.MLKIT, Engine.fromId(""))
         assertEquals(Engine.MLKIT, Engine.fromId("gpt-9"))
-        assertEquals(Engine.QWEN_4B, Engine.fromId("qwen3-4b"))
+        assertEquals(Engine.OPENROUTER, Engine.fromId("openrouter"))
+    }
+
+    @Test
+    fun anIdFromARemovedEngineFallsBackRatherThanCrashing() {
+        // The Qwen engines were removed from the registry. A phone still holding one of their ids in
+        // settings.json - written by an older build - must read as ML Kit, not fail on launch.
+        assertEquals(Engine.MLKIT, Engine.fromId("qwen3-1.7b"))
+        assertEquals(Engine.MLKIT, Engine.fromId("qwen3-4b"))
+    }
+
+    @Test
+    fun onlyTheCloudEngineSendsTextAway() {
+        assertEquals(2, Engine.entries.size)
+        assertTrue(Engine.OPENROUTER.cloud)
+        assertFalse(Engine.MLKIT.cloud)
     }
 
     @Test

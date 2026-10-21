@@ -45,6 +45,30 @@ object OpenRouter {
             "gives a single word together with the sentence it appears in, translate that word as it is " +
             "used in that sentence."
 
+    /**
+     * The instruction for a word tap, which is a different job from translating a sentence.
+     *
+     * A separate instruction because the unit is different, and saying so is what makes it work. The
+     * single instruction above describes *what* to translate but not *which unit*, and models resolved
+     * that ambiguity badly: measured on 49 real sentences, hy-mt2-1.8b echoed the input label in 49 of
+     * 49 cases, deepseek echoed 4, and mistral answered with a word that ignored the sentence context.
+     * With this instruction naming the unit and the reply format, the general models answered with
+     * exactly the word, every time (deepseek 49/49, zero echoes). Both strings are the ones the probe
+     * tested, so what ships is what was measured.
+     */
+    const val WORD_SYSTEM =
+        "You translate German into English. The user gives one German word and the sentence it " +
+            "appears in. Reply with only the English translation of that word, as it is used in that " +
+            "sentence - one word or a short phrase, with no notes, no quotes and nothing else."
+
+    /** Whether a tap is a word tap: a word with the sentence it came from attached. */
+    internal fun isWordTap(text: String, context: String?): Boolean =
+        !context.isNullOrBlank() && context != text
+
+    /** The instruction matching the unit being translated. */
+    internal fun systemFor(text: String, context: String?): String =
+        if (isWordTap(text, context)) WORD_SYSTEM else SYSTEM
+
     private const val MAX_OUTPUT_TOKENS = 400
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 90_000
@@ -66,14 +90,19 @@ object OpenRouter {
         } == true
 
     /**
-     * A cheap, non-reasoning instruct model as the default.
+     * The default model: cheap, non-reasoning, and the best of the four tested on this reader's own
+     * sentences.
      *
-     * Deliberately NOT a hybrid reasoning model: those can spend the whole output budget in a
-     * reasoning channel and return an empty `content`, which for a translation is a blank answer. A
-     * reader who wants a different model can type any id from OpenRouter's catalogue.
+     * Chosen on evidence, not on a hunch. 49 real German sentences from the two fixtures were sent to
+     * four models in exactly the shape this app sends, and two blind judges from other families
+     * (gemini-2.5-flash-lite over 49 sentences, claude-haiku-5.5 over 44) independently produced the
+     * same ordering: this model first, then hy-mt2-7b, then mistral-small-24b, then hy-mt2-1.8b - 21
+     * wins to 8 against the previous default. It costs about four cents a book and about a second a
+     * sentence. The earlier choice was a non-reasoning model for the reason below, which still holds:
+     * a hybrid reasoning model can spend the whole output budget thinking and return an empty
+     * `content`, which for a translation is a blank answer.
      */
-    const val DEFAULT_MODEL = "mistralai/mistral-small-24b-instruct-2501"
-
+    const val DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
     suspend fun translate(
         endpoint: String,
         apiKey: String,
@@ -126,7 +155,7 @@ object OpenRouter {
             "max_tokens" to JsonPrimitive(MAX_OUTPUT_TOKENS),
             "messages" to JsonArray(
                 listOf(
-                    message("system", SYSTEM),
+                    message("system", systemFor(text, context)),
                     message("user", userText(text, context)),
                 )
             ),

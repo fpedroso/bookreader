@@ -550,11 +550,6 @@ fun TranslationDialog(
      */
     downloading: Boolean = false,
     /**
-     * A local model is being loaded from disk on this tap - seconds for 1-2.7 GB, and only on the
-     * first tap after the app starts, or after switching engines.
-     */
-    loadingModel: Boolean = false,
-    /**
      * Extend the open unit by one more sentence and translate the joined text. Non-null only
      * when the unit is a sentence with a following sentence in the same paragraph, so a
      * paragraph or heading tap - and the last sentence of a paragraph - shows nothing here.
@@ -582,14 +577,6 @@ fun TranslationDialog(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(source, style = MaterialTheme.typography.bodySmall)
-                context?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
                 pair?.let {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -598,13 +585,27 @@ fun TranslationDialog(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                engineLabel?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                // A word tap shows the word, the pair, and the answer - nothing else. The sentence it
+                // came from and the engine that answered both earn their place on a sentence or a
+                // passage, where the reader is weighing prose and needs to know who to blame; for one
+                // word they are noise in the way of the thing that was asked for.
+                if (unit != "word") {
+                    context?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    engineLabel?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(14.dp))
                 when {
@@ -613,10 +614,6 @@ fun TranslationDialog(
                     // taking 90 seconds".
                     downloading -> Text(
                         "Downloading the offline model (~30 MB) — first time only…",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    loadingModel -> Text(
-                        "Loading the model into memory — first tap after opening the app…",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     busy -> Text("Translating…", style = MaterialTheme.typography.bodySmall)
@@ -676,6 +673,7 @@ fun SettingsScreen(
     var key by remember { mutableStateOf(settings.apiKey) }
     var model by remember { mutableStateOf(settings.apiModel) }
     var endpoint by remember { mutableStateOf(settings.apiEndpoint) }
+    var abbrevDraft by remember { mutableStateOf(settings.abbreviations) }
     var showKey by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     /**
@@ -735,18 +733,12 @@ fun SettingsScreen(
                         )
                         when {
                             !e.runnable -> Text(
-                                "Not runnable in this build yet — the model can still be downloaded " +
-                                    "and removed below.",
+                                "Not runnable in this build yet.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )
-                            e.cloud && !ready -> Text(
-                                "Add an API key below to switch to it.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                             !ready -> Text(
-                                "Download its model below to switch to it.",
+                                "Add an API key below to switch to it.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -831,6 +823,15 @@ fun SettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // The ids we actually tested, so nobody has to guess or paste a typo.
+                    Text(
+                        "Tested: deepseek/deepseek-v4.1-flash (best on your sentences), " +
+                            "mistralai/mistral-small-24b-instruct-2501 (cheapest), " +
+                            "tencent/hy-mt2-7b (purpose-built translation). " +
+                            "Any OpenAI-compatible model id works.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = endpoint,
@@ -847,11 +848,35 @@ fun SettingsScreen(
             }
             item {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Models", style = MaterialTheme.typography.titleMedium)
+                    Text("Sentences", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "The Qwen models are large downloads (1.0 GB and 2.5 GB) and are used entirely " +
-                            "on the device afterwards. ML Kit reports no download progress, so its " +
-                            "packs show a spinner rather than a percentage.",
+                        "Words after which a dot does not end a sentence — so `Mr. Smith` stays one " +
+                            "sentence instead of being cut in two. Separate with commas or new lines; " +
+                            "the dot is optional (`Mr.` and `Mr` both work). Clear the list to split " +
+                            "on punctuation alone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = abbrevDraft,
+                        onValueChange = { text ->
+                            abbrevDraft = text
+                            onSettings(settings.copy(abbreviations = text))
+                        },
+                        label = { Text("Does not end a sentence") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            item {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Offline language packs", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "ML Kit translates on the device using these ~30 MB packs, and needs both the " +
+                            "source and the target language. ML Kit reports no download progress, so " +
+                            "these rows show a spinner rather than a percentage. The cloud engine " +
+                            "needs no pack at all.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

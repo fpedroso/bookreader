@@ -147,9 +147,9 @@ class OpenRouterTest {
     }
 
     @Test
-    fun `a local engine's label is just its name`() {
+    fun `an on-device engine's label is just its name`() {
         val settings = AppSettings(apiModel = "some/model")
-        assertEquals("Qwen3 1.7B", engineProvenance(Engine.QWEN_1_7B, Engine.QWEN_1_7B, settings))
+        assertEquals("ML Kit", engineProvenance(Engine.MLKIT, Engine.MLKIT, settings))
     }
 
     @Test
@@ -157,15 +157,47 @@ class OpenRouterTest {
         val settings = AppSettings(engine = Engine.OPENROUTER.id, apiKey = "")
         val label = engineProvenance(Engine.MLKIT, Engine.OPENROUTER, settings)
         assertTrue(label, label.contains("no API key saved"))
-
-        val noModel = engineProvenance(Engine.MLKIT, Engine.QWEN_4B, AppSettings())
-        assertTrue(noModel, noModel.contains("no model on this device"))
     }
 
     @Test
     fun `the cloud engine is the only one that leaves the device`() {
         assertTrue(Engine.OPENROUTER.cloud)
-        assertTrue(!Engine.MLKIT.cloud && !Engine.QWEN_1_7B.cloud && !Engine.QWEN_4B.cloud)
+        assertTrue(!Engine.MLKIT.cloud)
+    }
+
+    @Test
+    fun `the default model is the one the blind judging put first`() {
+        assertEquals("deepseek/deepseek-v4.1-flash", OpenRouter.DEFAULT_MODEL)
+    }
+
+    @Test
+    fun `a word tap is told which unit to translate`() {
+        // The single instruction left the unit ambiguous and models answered with the whole sentence,
+        // a bare word with no context, or an echo of the label.
+        val sentence = "Einem Kind, dem man eine Bank zeichnet, hat es gar keinen Begriff."
+        val body = OpenRouter.requestBody("m", "Bank", sentence)
+        val messages = Json.parseToJsonElement(body).jsonObject["messages"]!!.jsonArray
+        val system = messages[0].jsonObject["content"]!!.jsonPrimitive.content
+        val user = messages[1].jsonObject["content"]!!.jsonPrimitive.content
+        assertEquals(OpenRouter.WORD_SYSTEM, system)
+        assertTrue(system, system.contains("only the English translation of that word"))
+        assertTrue(user, user.startsWith("Word: Bank"))
+    }
+
+    @Test
+    fun `a sentence tap gets the sentence instruction`() {
+        val body = OpenRouter.requestBody("m", "Der Hund bellt.")
+        val system = Json.parseToJsonElement(body).jsonObject["messages"]!!.jsonArray[0]
+            .jsonObject["content"]!!.jsonPrimitive.content
+        assertEquals(OpenRouter.SYSTEM, system)
+    }
+
+    @Test
+    fun `word or sentence is decided by whether a distinct context came along`() {
+        assertTrue(OpenRouter.isWordTap("Bank", "Einem Kind, dem man eine Bank zeichnet."))
+        assertTrue(!OpenRouter.isWordTap("Der Hund bellt.", null))
+        assertTrue(!OpenRouter.isWordTap("Der Hund bellt.", "Der Hund bellt."))
+        assertTrue(!OpenRouter.isWordTap("Der Hund bellt.", "  "))
     }
 
     @Test
@@ -186,12 +218,12 @@ class OpenRouterTest {
     }
 
     @Test
-    fun `a local engine's key ignores the model, because it does not have one`() {
-        // The model setting is passed at every call site for convenience; it must not fork a local
-        // engine's cache, since those engines pin their model to the engine id.
+    fun `ML Kit's key ignores the model, because it does not have one`() {
+        // The model setting is passed at every call site for convenience; it must not fork ML Kit's
+        // cache, since its model is pinned to the engine.
         assertEquals(
-            unitKey(Engine.QWEN_1_7B, "Bank", null),
-            unitKey(Engine.QWEN_1_7B, "Bank", null, "whatever/model"),
+            unitKey(Engine.MLKIT, "Bank", null),
+            unitKey(Engine.MLKIT, "Bank", null, "whatever/model"),
         )
     }
 

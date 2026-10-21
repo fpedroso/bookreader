@@ -32,10 +32,9 @@ the words and sentences you can't.
    with nothing to say why.
 6. **Translate.** Into a modal (`TranslationDialog`) that names the pair (`German → English`) and the
    engine — and the model, when the engine does not pin one — that produced the answer. If the text
-   is already English it says so and never calls a model. `ML Kit` and the Qwen engines run on the
-   device: no account, no cost, and the text never leaves the phone (the ~30 MB ML Kit model
-   downloads once per language pair and the modal says so while that happens). `OpenRouter` is a
-   cloud call with your own key, and that is the one engine where the text leaves the device.
+   is already English it says so and never calls a model. `ML Kit` translates on the device, free,
+   after a ~30 MB language pack. `OpenRouter` is a cloud call with the reader's own key, and that is
+   the one engine where the text leaves the device.
 7. **Cache.** Translations are stored per book in `translations.json` beside the book, keyed by
    a hash of the source text itself — never by position, so a sentence cannot inherit another
    sentence's translation when the splitter changes, and re-tapping is free. A word and a sentence
@@ -52,30 +51,48 @@ imports and renders as plain text. Translation is offered for **German books onl
 gate is `translationOffered` in `Translate.kt`, one line to widen once the tap has been read on
 more than one language. A row with no translation offered renders inert: no chip, no word tap.
 
-**The engine is a setting, and its model is managed in Settings.** ML Kit is the default; Qwen3
-1.7B and Qwen3 4B are listed with what they cost and can be downloaded and deleted from the same
-screen. An engine whose model is missing, or which this build cannot run, says so instead of being
-selectable — a setting that turns every tap into a failure is worse than no setting.
+**The engine is a setting, and it decides who can read what you read.** ML Kit is the on-device
+default: free, offline once its ~30 MB pack is in place. OpenRouter is the cloud engine, and it is
+the only one where a tapped word or sentence leaves the phone — the Settings section says so in its
+first line, and the modal names the engine and the model that answered.
 
-**The app's network use depends on the engine you choose.** ML Kit, Qwen3 1.7B and Qwen3 4B
-translate on the device and nothing you read leaves the phone; for those, `INTERNET` exists solely so
-Settings can download a 1.0 GB or 2.5 GB model file, and the models are ordinary files in the app's
-external storage, deleted from Settings — or with the app.
+**Why the cloud model is the default.** 49 real German sentences from the two fixtures were sent to
+four models in exactly the request shape the app uses, then ranked blind by two judges from other
+families (gemini-2.5-flash-lite over 49 sentences, claude-haiku-5.5 over 44), with the model names
+stripped and the options shuffled per sentence. Both produced the same ordering —
+`deepseek/deepseek-v4.1-flash`, then `tencent/hy-mt2-7b`, then `mistral-small-24b`, then
+`hy-mt2-1.8b` — with 21 wins to 8 against the previous default. Cost is about four cents a book.
+The probe that measured all this is in `~/bookreader-probe`.
 
-**OpenRouter is the exception, and it says so where you would look for it.** Choosing the cloud
-engine — or typing a key into its settings — means the word or sentence you tap is sent to that
-endpoint; the Settings section states it in the first line, and the translation modal names the
-engine and model that answered. The API key is stored in this app's private `settings.json`, which
-is excluded from cloud backup and device transfer (`res/xml/backup_rules.xml`,
+**The app's network use depends on the engine you choose.** With ML Kit, nothing you read leaves the
+phone; `INTERNET` is then only for the ~30 MB language pack, fetched when a translation first needs
+it. With OpenRouter, the word or sentence you tap is sent to the endpoint you configured — the
+Settings section states it in the first line, and the modal names the engine and model that answered.
+
+**Key hygiene, and any endpoint you like.** The API key lives in this app's private `settings.json`,
+which is excluded from cloud backup and device transfer (`res/xml/backup_rules.xml`,
 `res/xml/data_extraction_rules.xml`) so a key cannot ride into a backup. Any OpenAI-compatible
 endpoint can be used, including a server on your own machine; cleartext HTTP is permitted only for
 `localhost`/`127.0.0.1`/`10.0.2.2` (`res/xml/network_security_config.xml`), so the rest of the app
 still cannot be downgraded to plain HTTP.
 
-**Word taps send the sentence too.** A tapped word goes to the engine with the sentence it was
-tapped in, labelled (`Word: Bank\nIn the sentence: …`), because a bare word is ambiguous — `Bank` is
-a bench in *Struwwelpeter*, not a bank. The sentence a word came from is also part of its cache key,
-so the same word in two sentences is two translations.
+- **A word tap is a different question, so it is asked differently.** For a word the modal shows the
+  German word, the `German → English` pair, and the English word — nothing else. The sentence it came
+  from and the engine that answered earn their place on a sentence or a passage, where the reader is
+  weighing prose; on one word they are noise in the way of the answer. The request carries a
+  word-specific instruction for the same reason: the sentence instruction described *what* to
+  translate but not *which unit*, and models answered with the whole sentence, a bare word with the
+  context ignored, or an echo of the input label. The payload sends the word **and** the sentence it
+  sits in, labelled (`Word: Bank`), because a bare word is the thing that translates ambiguously —
+  `Bank` is a bench in *Struwwelpeter*, not a bank. That sentence is part of the word's cache key, so
+  the same word in two sentences is two translations.
+- **Sentence splitting takes a list, because only a list can tell `Mr.` from a full stop.**
+  `Mr. Smith` and `Er ging. Beispiel kam.` are lexically identical to a splitter, so Settings holds
+  the words after which a dot does not end a sentence — `Mr`, `Mrs`, `Ms`, `Dr`, `Prof`, `St`, `Nr`,
+  `Bd`, `Abb` by default, and the reader can add anything else. Dotted forms like `z.B.` need no
+  entry: the initial-chain rule already keeps them together. Adding a word that also *ends* sentences
+  (`usw.`, `etc.`) merges those sentences into one translation unit — the reader's call, and the tests
+  pin both sides of it.
 
 ## Build
 
@@ -157,15 +174,6 @@ often not installed, and without `cmdline-tools` AGP cannot fetch it.
 
 ## Known gaps
 
-- **The local engines still receive a bare word.** A tapped word reaches ML Kit and the Qwen models
-  on its own; only the cloud engine is sent the sentence it was tapped in. That sentence is already
-  on screen and already part of the word's cache key, so the fix is small — and worth making, since
-  a bare `Bank` is exactly the ambiguity the sentence resolves.
-- **The local engines' speed on a phone is unmeasured.** The emulator is CPU-only and far too slow
-  to time (one sentence was still generating after four minutes); the published figure for this model
-  size on a phone's GPU/NPU is 16-28 tokens/s, which would be 2-4 s a sentence. The Qwen engines
-  load and translate — verified on the emulator — but only the phone can say whether the wait is
-  acceptable while reading.
 - **A `Test the key` result is not persisted**, so the success line disappears when Settings is
   reopened. The saved key is what matters; the line is only feedback for the call just made.
 - **A word's translation is not a dictionary entry.** ML Kit returns one rendering of the form you

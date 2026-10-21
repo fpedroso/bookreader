@@ -63,15 +63,18 @@ fun App() {
     // be both runnable and ON THE DEVICE, and either can change while the app runs, so this is
     // recomputed whenever Settings closes.
     val selectedEngine = Engine.fromId(settings.engine)
+    /**
+     * The honourific/abbreviation list, parsed once per edit. A change has to re-split the book, so
+     * this value (not the raw string) is what the reader remembers rows by.
+     */
+    val abbreviations = remember(settings.abbreviations) {
+        Sentences.abbreviationSet(settings.abbreviations)
+    }
     var engine by remember { mutableStateOf(Engine.MLKIT) }
     LaunchedEffect(settings, showSettings) {
         if (!showSettings) {
             val next = Models.resolve(ctx, selectedEngine, settings)
-            if (next != engine) {
-                // Do not keep a 2.7 GB model resident after the reader has moved away from it.
-                withContext(Dispatchers.IO) { Qwen.unload() }
-                engine = next
-            }
+            if (next != engine) engine = next
         }
     }
     var parsed by remember { mutableStateOf<EpubParser.Book?>(null) }
@@ -99,8 +102,6 @@ fun App() {
     var translation by remember { mutableStateOf<String?>(null) }
     var translating by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
-    /** A local model is being read off disk on this tap - seconds, first tap after a cold start. */
-    var loadingModel by remember { mutableStateOf(false) }
     var alreadyEnglish by remember { mutableStateOf(false) }
     var translateError by remember { mutableStateOf<String?>(null) }
     var translations by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -228,7 +229,7 @@ fun App() {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading…") }
     } else {
         val book = parsed!!
-        val rows = remember(book, lang) { buildRows(book, lang) }
+        val rows = remember(book, lang, abbreviations) { buildRows(book, lang, abbreviations) }
 
         // Tap a unit -> its translation, cached by key so re-tapping is free. The unit is
         // one sentence (extendable by "Translate more"), or a whole paragraph for headings
@@ -258,7 +259,6 @@ fun App() {
             translation = key?.let { translations[it] }
             alreadyEnglish = alreadyTarget(declared)
             downloading = false
-            loadingModel = false
             translateError = null
             translating = false
             if (key == null || translation != null) return
@@ -287,11 +287,10 @@ fun App() {
                     withContext(Dispatchers.Default) { Translate.needsModelDownload(src) }
                 // Reading a local model off disk happens on the first tap after a cold start. A cloud
                 // engine has nothing to load, so it must not claim to be loading one.
-                loadingModel = !engine.cloud && engine != Engine.MLKIT && !Qwen.isLoaded()
                 val res = runCatching {
                     withContext(Dispatchers.Default) {
                         when (engine) {
-                            Engine.MLKIT -> Translate.paragraph(ctx, src, source)
+                            Engine.MLKIT -> Translate.paragraph(ctx, src, source, abbreviations)
                             // The cloud engine is the one place the text leaves the device; the
                             // endpoint, key and model all come from Settings.
                             Engine.OPENROUTER -> OpenRouter.translate(
@@ -303,11 +302,9 @@ fun App() {
                                 // tells "Bank" the bench from "Bank" the bank.
                                 context = tapContext,
                             )
-                            else -> Qwen.translate(ctx, engine, source)
                         }
                     }
                 }
-                loadingModel = false
                 downloading = false
                 translating = false
                 res.fold(
@@ -416,7 +413,6 @@ fun App() {
                 engineLabel = engineProvenance(engine, selectedEngine, settings),
                 alreadyEnglish = alreadyEnglish,
                 downloading = downloading,
-                loadingModel = loadingModel,
                 onTranslateMore = moreSpan?.let { span ->
                     {
                         val sentences = tapRow?.sentences
@@ -468,9 +464,14 @@ fun App() {
  * The sentences' own text is returned, not offsets: each one is rendered on its own line with the
  * sentence action at its end, so the unit is exact by construction and nothing needs resolving.
  */
-internal fun sentenceUnits(text: String, heading: Boolean, lang: String): List<String>? {
+internal fun sentenceUnits(
+    text: String,
+    heading: Boolean,
+    lang: String,
+    abbreviations: Set<String> = emptySet(),
+): List<String>? {
     if (heading || text.contains('\n')) return null
-    return Sentences.split(text, lang).map { it.text }.takeIf { it.isNotEmpty() }
+    return Sentences.split(text, lang, abbreviations).map { it.text }.takeIf { it.isNotEmpty() }
 }
 
 /**
@@ -484,15 +485,21 @@ internal fun sentenceUnits(text: String, heading: Boolean, lang: String): List<S
 internal fun engineProvenance(active: Engine, selected: Engine, settings: AppSettings): String {
     val label = if (active.cloud) "${active.label} · ${settings.apiModel}" else active.label
     if (active == selected) return label
-    val why = when {
-        !selected.runnable -> "not runnable in this build"
-        selected.cloud -> "no API key saved"
-        else -> "no model on this device"
-    }
+    /**
+     * Why the chosen engine could not be used, for the modal's provenance line.
+     *
+     * Derived rather than assumed: today only the cloud engine can be chosen and unusable (ML Kit is
+     * always ready), but writing it this way means adding an engine later cannot mislabel the reason.
+     */
+    val why = if (selected.cloud) "no API key saved" else "not runnable in this build"
     return "$label (${selected.label}: $why)"
 }
 
-private fun buildRows(book: EpubParser.Book, lang: String): List<RowItem> {
+private fun buildRows(
+    book: EpubParser.Book,
+    lang: String,
+    abbreviations: Set<String> = emptySet(),
+): List<RowItem> {
     val out = ArrayList<RowItem>()
     // No chapter-title row: the parser has no title to give one (see EpubParser.Chapter), and
     // the reader does not need it - a chapter announces itself with the <h1>-<h6> headings the
@@ -507,7 +514,7 @@ private fun buildRows(book: EpubParser.Book, lang: String): List<RowItem> {
                     text = bl.text,
                     heading = bl.heading,
                     hash = Annotations.key(bl.text),
-                    sentences = sentenceUnits(bl.text, bl.heading, lang),
+                    sentences = sentenceUnits(bl.text, bl.heading, lang, abbreviations),
                     // The block's own resolved language, so the tap translates with the
                     // language that block is actually written in.
                     lang = bl.lang,

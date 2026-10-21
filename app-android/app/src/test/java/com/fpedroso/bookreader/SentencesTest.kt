@@ -13,6 +13,74 @@ class SentencesTest {
 
     private fun texts(s: String) = Sentences.splitGerman(s).map { it.text }
 
+    /** The same, with an abbreviation list, which is what the app passes from Settings. */
+    private fun textsWith(s: String, list: String) =
+        Sentences.splitGerman(s, Sentences.abbreviationSet(list)).map { it.text }
+
+    private val DEFAULTS = Sentences.DEFAULT_ABBREVIATIONS
+
+    @Test
+    fun mrAndMrsStopEndingSentencesOnceTheyAreInTheList() {
+        // The case that matters for an English novel read in German, and the one the old
+        // structure-only splitter could not fix: "Capital. Capital" is lexically identical to a real
+        // boundary, so only the word itself can decide.
+        val s = "Mr. und Mrs. Beispiel in der Gartenstraße 4 waren stolz darauf, gewöhnlich zu sein."
+        assertEquals(listOf(s), textsWith(s, DEFAULTS))
+    }
+
+    @Test
+    fun aListEntryAlsoFixesTheGermanHonourific() {
+        val s = "Dr. Egon Muster kam um acht Uhr an."
+        assertEquals(listOf(s), textsWith(s, DEFAULTS))
+    }
+
+    @Test
+    fun dottedAbbreviationsNeedNoEntryBecauseStructureAlreadyKeepsThem() {
+        // The initial-chain rule handles `z.B.` / `u.a.`: the dot follows a capital whose own
+        // predecessor is a dot, so there is nothing for the list to do.
+        assertEquals(listOf("Ich mag Tiere, z.B. Hunde."), texts("Ich mag Tiere, z.B. Hunde."))
+    }
+
+    @Test
+    fun anEntryThatAlsoEndsSentencesMergesThemAndThatIsTheTradeOff() {
+        // Why usw./etc./bzw./ca. are not defaults: after "usw." a capitalised word is exactly what a
+        // new sentence looks like. Listing it merges two real sentences - the reader's call, not ours.
+        val s = "Ich mag Katzen, usw. Das ist schön."
+        assertEquals(listOf("Ich mag Katzen, usw.", "Das ist schön."), textsWith(s, DEFAULTS))
+        assertEquals(listOf(s), textsWith(s, "$DEFAULTS, usw"))
+    }
+
+    @Test
+    fun aPlainWordBeforeTheDotStillEndsTheSentence() {
+        // The negative control: the list must not suppress real boundaries, which is why entries are
+        // exact words rather than a "short capitalised word" shape rule.
+        assertEquals(listOf("Er ging.", "Beispiel kam."), textsWith("Er ging. Beispiel kam.", DEFAULTS))
+    }
+
+    @Test
+    fun aCustomEntryWorksExactlyLikeABuiltInOne() {
+        val s = "Wir sahen Zorg. Dann gingen wir heim."
+        assertEquals(listOf("Wir sahen Zorg.", "Dann gingen wir heim."), textsWith(s, DEFAULTS))
+        assertEquals(listOf(s), textsWith(s, "$DEFAULTS, Zorg"))
+    }
+
+    @Test
+    fun entriesAreMatchedWithoutTheirDotAndWithoutCase() {
+        val set = Sentences.abbreviationSet("MR., mrs Prof; \n Zzz")
+        assertEquals(setOf("mr", "mrs", "prof", "zzz"), set)
+        assertEquals(
+            listOf("Mr. Smith blieb hier."),
+            Sentences.splitGerman("Mr. Smith blieb hier.", set).map { it.text },
+        )
+    }
+
+    @Test
+    fun anEmptyListIsTheOldBehaviour() {
+        // Documented and pinned: with no list, structure alone decides, and Mr./Mrs. split again.
+        val s = "Mr. Smith blieb hier."
+        assertEquals(listOf("Mr.", "Smith blieb hier."), texts(s))
+    }
+
     @Test
     fun splitsOnTerminators() {
         assertEquals(

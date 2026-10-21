@@ -13,20 +13,53 @@ package com.fpedroso.bookreader
  * splitter breaks `Dr. Egon Muster` and `564. Auflage` - both of which appear in the prose
  * these rules are tested against.
  *
- * There is deliberately NO abbreviation list and no fragment merging: this splitter relies on
- * structure alone - the case of the following token, ordinals, initial chains, the
- * comma/colon rule and closing punctuation. The cost is honest and accepted: `Mr. und Mrs.
- * Beispiel` and `Dr. Egon Muster` split again, because "Capital. Capital" is lexically
- * identical to a real boundary (`Er ging. Beispiel kam.`) and only knowing which words are
- * honourifics can separate them. A shape-based substitute ("a short capitalised word before
- * the dot") was rejected too: it suppresses the boundary in `Er traf Hans. Dann ging er.`,
- * which is worse than the false split it would fix. Do not reintroduce either.
+ * There is deliberately NO fragment merging: this splitter relies on structure alone - the case of
+ * the following token, ordinals, initial chains, the comma/colon rule and closing punctuation.
+ *
+ * There IS now an explicit abbreviation list, and it is a SETTING rather than a hard-coded
+ * heuristic. The note above used to reject both, but it also named the one reliable signal: "only
+ * knowing which words are honourifics can separate them". A list is that knowledge, and the reader
+ * owns it - `Mr.`/`Mrs.` matter for an English novel read in German, `Dr.`/`z.B.` for German prose,
+ * and a shape-based guess ("a short capitalised word before the dot") was rejected for good reason:
+ * it suppresses the boundary in `Er traf Hans. Dann ging er.`, which is worse than the false split
+ * it would fix. The list is matched case-insensitively, with a trailing dot on either side ignored,
+ * so `Mr`, `Mr.` and `z.B.` all work as typed. Empty list = the old structure-only behaviour, which
+ * the unit tests still pin.
  *
  * Everything here is pure and works on whitespace-collapsed text.
  */
 object Sentences {
 
     data class Sentence(val text: String, val start: Int, val end: Int)
+
+    /**
+     * What the reader gets before touching anything: honourifics and reference abbreviations, which
+     * are the ones that are reliably mid-sentence.
+     *
+     * Two deliberate exclusions, both learned from the tests:
+     *
+     *  - Dotted forms (`z.B.`, `u.a.`, `d.h.`) need no entry: the splitter's initial-chain rule
+     *    already keeps them together, because the dot follows a capital whose own predecessor is a dot.
+     *  - Words that also END sentences (`usw.`, `etc.`, `bzw.`, `ca.`) are NOT defaults. After `usw.`
+     *    a capitalised word is exactly what a new sentence looks like, so listing it merges two real
+     *    sentences into one translation unit. A reader who prefers that can add it; the tests pin both
+     *    sides of that trade-off.
+     */
+    const val DEFAULT_ABBREVIATIONS = "Mr, Mrs, Ms, Dr, Prof, St, Nr, Bd, Abb"
+
+    /**
+     * Parse the setting: comma, semicolon, newline or plain space separated, case-insensitive, with
+     * or without its dot. Returns lowercase keys with any trailing dot removed, which is the form the
+     * splitter compares against.
+     *
+     * Whitespace counts as a separator because that is how people type a list of short words by hand
+     * ("Mr Mrs Dr"); nothing that matters here contains a space.
+     */
+    fun abbreviationSet(raw: String): Set<String> = raw
+        .split(',', ';', '\n', ' ', '\t')
+        .map { it.trim().removeSuffix(".").lowercase() }
+        .filter { it.isNotEmpty() }
+        .toSet()
 
     /** Trailing punctuation that belongs to the sentence it closes. */
     private val CLOSERS = setOf('»', '«', '“', '”', '\"', '\'', '’', '‘', ')', ']', '}')
@@ -36,11 +69,12 @@ object Sentences {
     /** Collapse every run of whitespace, so verse line breaks become plain spaces. */
     private fun normalise(raw: String): String = raw.replace(Regex("\\s+"), " ").trim()
 
-    fun split(text: String, lang: String): List<Sentence> = when {
-        lang.startsWith("de") -> splitGerman(text)
-        // Latin-script default; good enough for the other European languages.
-        else -> splitByAsciiPunctuation(normalise(text))
-    }
+    fun split(text: String, lang: String, abbreviations: Set<String> = emptySet()): List<Sentence> =
+        when {
+            lang.startsWith("de") -> splitGerman(text, abbreviations)
+            // Latin-script default; good enough for the other European languages.
+            else -> splitByAsciiPunctuation(normalise(text), abbreviations)
+        }
 
     // ------------------------------------------------------------------ German
 
@@ -53,9 +87,10 @@ object Sentences {
      * way as well: every unit is now exactly what the punctuation says, so a sentence the
      * reader sees is a sentence the splitter meant.
      */
-    fun splitGerman(raw: String): List<Sentence> = splitByAsciiPunctuation(normalise(raw))
+    fun splitGerman(raw: String, abbreviations: Set<String> = emptySet()): List<Sentence> =
+        splitByAsciiPunctuation(normalise(raw), abbreviations)
 
-    private fun splitByAsciiPunctuation(text: String): List<Sentence> {
+    private fun splitByAsciiPunctuation(text: String, abbreviations: Set<String>): List<Sentence> {
         val out = ArrayList<Sentence>()
         var start = 0
         var i = 0
@@ -70,7 +105,7 @@ object Sentences {
             // Absorb the closing quote/bracket: »Komm her!« ends at «, not at !.
             var k = j
             while (k + 1 < text.length && text[k + 1] in CLOSERS) k++
-            if (endsSentence(text, i, j, k)) {
+            if (endsSentence(text, i, j, k, abbreviations)) {
                 out.add(Sentence(text.substring(start, k + 1).trim(), start, k + 1))
                 start = k + 1
             }
@@ -88,7 +123,13 @@ object Sentences {
      *
      * Ordered from the most reliable signals to the weakest, so the cheap guards run first.
      */
-    private fun endsSentence(text: String, termStart: Int, termEnd: Int, closeEnd: Int): Boolean {
+    private fun endsSentence(
+        text: String,
+        termStart: Int,
+        termEnd: Int,
+        closeEnd: Int,
+        abbreviations: Set<String>,
+    ): Boolean {
         val after = closeEnd + 1
         if (after >= text.length) return true
 
@@ -115,8 +156,12 @@ object Sentences {
             val word = wordBefore(text, termStart) ?: return true
             // A single capital letter is an initial: H. Muster.
             if (word.length == 1 && word.first().isUpperCase()) return false
-            // Nothing else: there is no abbreviation list, so `Dr.` / `Mrs.` end the sentence
-            // here when a capitalised word follows. See the note at the top of this file.
+            // An explicit honourific or abbreviation does not end the sentence. This is the case
+            // structure cannot decide: `Mr. Smith` and `Er ging. Beispiel kam.` are lexically
+            // identical, so only knowing the word can tell them apart.
+            if (word.lowercase() in abbreviations) return false
+            // Nothing else: without the word in the list, `Dr.` / `Mrs.` end the sentence here when
+            // a capitalised word follows. See the note at the top of this file.
         }
         return true
     }

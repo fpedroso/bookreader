@@ -41,6 +41,14 @@ data class AppSettings(
      * works against OpenAI, DeepSeek, or a llama.cpp server on your own machine.
      */
     val apiEndpoint: String = OpenRouter.DEFAULT_ENDPOINT,
+    /**
+     * Words that do NOT end a sentence when a dot follows them, e.g. `Mr.`, `Mrs.`, `Dr.`, `z.B.`.
+     *
+     * A setting rather than a built-in list because which words matter depends on what is being read:
+     * `Mr.`/`Mrs.` for an English novel, `Dr.`/`bzw.` for German prose. Comma, semicolon or newline
+     * separated; a trailing dot is optional.
+     */
+    val abbreviations: String = Sentences.DEFAULT_ABBREVIATIONS,
 )
 
 /** Plain-file library: no database dependency for v1. */

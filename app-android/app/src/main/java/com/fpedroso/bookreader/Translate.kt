@@ -82,12 +82,12 @@ object Translate {
      * Paragraph text flattened for the model, split into model-sized pieces at sentence
      * boundaries when it is long. Pure, so it is unit-tested without a device.
      */
-    fun chunks(text: String, lang: String): List<String> {
+    fun chunks(text: String, lang: String, abbreviations: Set<String> = emptySet()): List<String> {
         val flat = text.replace(Regex("\\s+"), " ").trim()
         if (flat.length <= MAX_CHARS) return listOf(flat)
         val out = ArrayList<String>()
         val sb = StringBuilder()
-        for (s in Sentences.split(flat, lang)) {
+        for (s in Sentences.split(flat, lang, abbreviations)) {
             if (sb.isNotEmpty() && sb.length + s.text.length + 1 > MAX_CHARS) {
                 out.add(sb.toString())
                 sb.setLength(0)
@@ -108,8 +108,13 @@ object Translate {
      *
      * Call off the main thread.
      */
-    suspend fun paragraph(context: Context, from: String, text: String): String {
-        val parts = chunks(text, from)
+    suspend fun paragraph(
+        context: Context,
+        from: String,
+        text: String,
+        abbreviations: Set<String> = emptySet(),
+    ): String {
+        val parts = chunks(text, from, abbreviations)
         val translated = parts.map { client(from, TARGET).awaitTranslate(it) }
         return translated.joinToString(" ")
     }

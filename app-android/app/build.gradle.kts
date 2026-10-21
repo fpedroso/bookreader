@@ -16,10 +16,9 @@ android {
         applicationId = "com.fpedroso.bookreader"
         minSdk = 26
         targetSdk = 35
-        // Only the two ABIs this app is actually installed on: arm64-v8a for the phone, x86_64 for
-        // the emulator. Adding LiteRT-LM put a ~22 MB and a ~26 MB inference library in the APK, and
-        // the 32-bit ABIs would carry a third and fourth copy of it (plus another of ML Kit's) for
-        // hardware that cannot run the models at a usable speed anyway.
+        // Only the two ABIs this app is installed on: arm64-v8a for the phone, x86_64 for the
+        // emulator. ML Kit's native libraries ship for four ABIs, and the 32-bit ones would carry
+        // another copy each for hardware nobody is running this on - the app targets a modern phone.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -115,11 +114,6 @@ dependencies {
     // .so per ABI - the play-services/firebase/mlkit-common versions it names are the ones
     // translate above already brings.
     implementation("com.google.mlkit:language-id:17.0.6")
-
-    // Language model inference, for the Qwen3 engines in Settings. One dependency, no NDK: the
-    // runtime ships as Kotlin + native .so for arm64-v8a and x86_64. Its metadata is
-    // mv=[2,4,0] and its class files are Java 21, which is why the Kotlin pin moved to 2.4.0.
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
 
     // Unit tests. kxml2 supplies XmlPullParser on the JVM so the production
     // parser can be exercised against the PC-side annotator's output.
