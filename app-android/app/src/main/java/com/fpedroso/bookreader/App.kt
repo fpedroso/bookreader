@@ -408,9 +408,12 @@ fun App() {
                 },
                 context = tapContext,
                 pair = languagePair(tapLang),
-                // Provenance: which engine answered, and which model when that is not fixed. If the stored
-                // choice could not be used, say what was used instead and why.
-                engineLabel = engineProvenance(engine, selectedEngine, settings),
+                // Provenance only when it is NOT what the reader chose: if OpenRouter was selected and
+                // ML Kit answered instead, that is worth knowing. When the chosen engine answered,
+                // naming it and its model is just noise on top of the translation - the reader said so,
+                // and for a one-word answer the noise was worse than the line.
+                engineLabel = if (engine == selectedEngine) null
+                else engineProvenance(engine, selectedEngine, settings),
                 alreadyEnglish = alreadyEnglish,
                 downloading = downloading,
                 onTranslateMore = moreSpan?.let { span ->

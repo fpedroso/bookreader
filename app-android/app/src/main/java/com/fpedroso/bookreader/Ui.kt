@@ -524,8 +524,9 @@ fun TranslationDialog(
     /** "word", "sentence" or "passage" - which unit is being shown. Only a label. */
     unit: String = "sentence",
     /**
-     * Which engine produced this translation. Shown because the answer's reliability depends on it -
-     * ML Kit and a 1.7B model fail differently - so the reader can weigh what they are reading.
+     * A warning, not provenance: set only when the engine that answered is NOT the one chosen, e.g.
+     * OpenRouter was selected and ML Kit answered because no key is saved. Null in the ordinary case,
+     * where naming the engine and its model on top of the translation is noise.
      */
     engineLabel: String? = null,
     /**
@@ -585,10 +586,8 @@ fun TranslationDialog(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                // A word tap shows the word, the pair, and the answer - nothing else. The sentence it
-                // came from and the engine that answered both earn their place on a sentence or a
-                // passage, where the reader is weighing prose and needs to know who to blame; for one
-                // word they are noise in the way of the thing that was asked for.
+                // The sentence a tapped word came from is context for weighing prose; for one word the
+                // reader asked for the word alone, so it is not shown there.
                 if (unit != "word") {
                     context?.let {
                         Spacer(Modifier.height(6.dp))
@@ -598,14 +597,16 @@ fun TranslationDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    engineLabel?.let {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                }
+                // A warning is not decoration: if the engine that answered is not the one chosen, it
+                // shows whatever the unit is. In the ordinary case App passes null and nothing appears.
+                engineLabel?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 Spacer(Modifier.height(14.dp))
                 when {

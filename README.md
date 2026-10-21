@@ -54,7 +54,8 @@ more than one language. A row with no translation offered renders inert: no chip
 **The engine is a setting, and it decides who can read what you read.** ML Kit is the on-device
 default: free, offline once its ~30 MB pack is in place. OpenRouter is the cloud engine, and it is
 the only one where a tapped word or sentence leaves the phone — the Settings section says so in its
-first line, and the modal names the engine and the model that answered.
+first line. The modal stays out of the way: it says nothing about the engine when the chosen one
+answered, and says which engine did answer only when it was not the one chosen.
 
 **Why the cloud model is the default.** 49 real German sentences from the two fixtures were sent to
 four models in exactly the request shape the app uses, then ranked blind by two judges from other
@@ -67,7 +68,9 @@ The probe that measured all this is in `~/bookreader-probe`.
 **The app's network use depends on the engine you choose.** With ML Kit, nothing you read leaves the
 phone; `INTERNET` is then only for the ~30 MB language pack, fetched when a translation first needs
 it. With OpenRouter, the word or sentence you tap is sent to the endpoint you configured — the
-Settings section states it in the first line, and the modal names the engine and model that answered.
+Settings section states it in the first line. If a translation comes from an engine other than the one
+chosen — ML Kit answering because no key is saved, say — the modal says so; otherwise it does not
+mention the engine at all.
 
 **Key hygiene, and any endpoint you like.** The API key lives in this app's private `settings.json`,
 which is excluded from cloud backup and device transfer (`res/xml/backup_rules.xml`,
