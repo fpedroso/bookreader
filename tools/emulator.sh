@@ -26,6 +26,15 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Platform: Windows (git-bash) needs .exe/.bat launchers and native paths; Linux and macOS do not.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) EXE=".exe"; BAT=".bat"; CT_OS="win" ;;
+  Darwin)               EXE="";     BAT="";     CT_OS="mac" ;;
+  *)                    EXE="";     BAT="";     CT_OS="linux" ;;
+esac
+# A native path for programs that are not bash: cygpath on Windows, the path itself everywhere else.
+to_native() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+
 # Configuration lives in a gitignored env file so this script carries no machine-specific paths of
 # its own. EMULATOR_ENV points at another file for a one-off run.
 #
@@ -53,6 +62,8 @@ if [ -z "${ANDROID_HOME:-}" ]; then
     ANDROID_HOME="$ANDROID_SDK_ROOT"
   elif [ -n "${LOCALAPPDATA:-}" ]; then
     ANDROID_HOME="$(cygpath -m "$LOCALAPPDATA" 2>/dev/null || echo "$LOCALAPPDATA")/Android/Sdk"
+  elif [ -d "$HOME/android-sdk/platforms" ]; then
+    ANDROID_HOME="$HOME/android-sdk"          # the VPS layout
   elif [ "$(uname -s)" = "Darwin" ]; then
     ANDROID_HOME="$HOME/Library/Android/sdk"
   else
@@ -62,10 +73,10 @@ fi
 
 SDK_WIN="${ANDROID_HOME}"
 SDK_BASH="$(cygpath -u "$SDK_WIN" 2>/dev/null || echo "$SDK_WIN")"
-ADB="$SDK_WIN/platform-tools/adb.exe"
-EMULATOR="$SDK_WIN/emulator/emulator.exe"
-SDKMGR="$SDK_WIN/cmdline-tools/latest/bin/sdkmanager.bat"
-AVDMGR="$SDK_WIN/cmdline-tools/latest/bin/avdmanager.bat"
+ADB="$SDK_WIN/platform-tools/adb$EXE"
+EMULATOR="$SDK_WIN/emulator/emulator$EXE"
+SDKMGR="$SDK_WIN/cmdline-tools/latest/bin/sdkmanager$BAT"
+AVDMGR="$SDK_WIN/cmdline-tools/latest/bin/avdmanager$BAT"
 
 # sdkmanager/avdmanager are launcher scripts, so bash's PATH is not enough - they consult JAVA_HOME
 # directly and fail unhelpfully without it. Derive it from whichever `java` the shell would actually
@@ -76,7 +87,7 @@ if [ -z "${JAVA_HOME:-}" ]; then
   __java="$(command -v java 2>/dev/null || true)"
   if [ -n "$__java" ]; then
     __java="$(readlink -f "$__java" 2>/dev/null || echo "$__java")"
-    JAVA_HOME="$(cygpath -w "$(dirname "$(dirname "$__java")")" 2>/dev/null || true)"
+    JAVA_HOME="$(to_native "$(dirname "$(dirname "$__java")")" 2>/dev/null || true)"
     if [ -n "$JAVA_HOME" ]; then export JAVA_HOME; fi
   fi
   unset __java
@@ -119,7 +130,7 @@ need_java_home() {
 }
 
 ensure_cmdline_tools() {
-  if [ -x "$SDK_BASH/cmdline-tools/latest/bin/sdkmanager.bat" ]; then
+  if [ -x "$SDK_BASH/cmdline-tools/latest/bin/sdkmanager$BAT" ]; then
     log "cmdline-tools present"
     return
   fi
@@ -129,7 +140,7 @@ ensure_cmdline_tools() {
   # The version in the filename changes; ask Google's repository for the current one.
   local url
   url=$(curl -s "https://dl.google.com/android/repository/repository2-3.xml" \
-        | grep -oE "commandlinetools-win-[0-9]+_latest\.zip" | sort -u | tail -1)
+        | grep -oE "commandlinetools-${CT_OS}-[0-9]+_latest\.zip" | sort -u | tail -1)
   [ -n "$url" ] || { echo "could not determine cmdline-tools URL" >&2; exit 1; }
   log "downloading $url"
   curl -sL -o "$zip" "https://dl.google.com/android/repository/$url"
@@ -263,7 +274,7 @@ cmd_install() {
   local apk="$REPO_ROOT/app-android/app/build/outputs/apk/debug/app-debug.apk"
   [ -f "$apk" ] || { echo "build first: ./build.sh assembleDebug" >&2; exit 1; }
   log "installing $(du -h "$apk" | cut -f1) APK"
-  adb_emu install -r "$(cygpath -w "$apk")" | tail -1
+  adb_emu install -r "$(to_native "$apk")" | tail -1
 
   # One book per EPUB in content/. The directory is gitignored and the fixtures are put there by
   # hand, so a fresh clone simply has none.
@@ -287,7 +298,7 @@ cmd_install() {
     local id
     id="$(printf '%s' "${name%.epub}" | tr -cd 'A-Za-z0-9' | cut -c1-24)"
     [ -n "$id" ] || id="book"
-    adb_emu push "$(cygpath -w "$f")" "/data/local/tmp/br/$id.epub" >/dev/null
+    adb_emu push "$(to_native "$f")" "/data/local/tmp/br/$id.epub" >/dev/null
     ids+=("$id")
     titles+=("$name")
   done
